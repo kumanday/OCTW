@@ -1,0 +1,77 @@
+services:
+  octw-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: octw
+      POSTGRES_USER: octw
+      POSTGRES_PASSWORD: octw
+    ports:
+      - "5432:5432"
+    volumes:
+      - octw_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U octw"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - octw_control
+
+  octw-cache:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - octw_control
+
+  octw-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uvicorn", "octw.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      OCTW_DB_URL: "postgresql+asyncpg://octw:octw@octw-db:5432/octw"
+      OCTW_REDIS_URL: "redis://octw-cache:6379/0"
+      OCTW_KEK: "${OCTW_KEK}"
+      OCTW_JWT_SECRET: "${OCTW_JWT_SECRET:-change-me-in-production}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/octw:/var/lib/octw
+    depends_on:
+      octw-db:
+        condition: service_healthy
+      octw-cache:
+        condition: service_healthy
+    networks:
+      - octw_control
+
+  octw-edge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uvicorn", "octw.edge.proxy:edge_app", "--host", "0.0.0.0", "--port", "8443"]
+    ports:
+      - "8443:8443"
+    environment:
+      OCTW_DB_URL: "postgresql+asyncpg://octw:octw@octw-db:5432/octw"
+      OCTW_REDIS_URL: "redis://octw-cache:6379/0"
+      OCTW_JWT_SECRET: "${OCTW_JWT_SECRET:-change-me-in-production}"
+      OCTW_EDGE_DOMAIN: "${OCTW_EDGE_DOMAIN:-octw.example.com}"
+    depends_on:
+      - octw-api
+    networks:
+      - octw_control
+
+volumes:
+  octw_pgdata:
+
+networks:
+  octw_control:
+    driver: bridge

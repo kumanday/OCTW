@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "octw-api"
+    static_configs:
+      - targets: ["octw-api:8000"]
+    metrics_path: /metrics
+
+  - job_name: "octw-edge"
+    static_configs:
+      - targets: ["octw-edge:8443"]
+    metrics_path: /metrics
