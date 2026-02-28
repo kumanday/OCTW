@@ -63,6 +63,7 @@ class Tenant(BaseModel):
     network_id: str | None = None
     openclaw_image: str | None = None
     openclaw_digest: str | None = None
+    provider: str | None = None
     last_activity_at: datetime | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

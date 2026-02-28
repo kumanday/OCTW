@@ -8,6 +8,7 @@ from prometheus_client import make_asgi_app
 from octw.api.routers import (
     auth_router,
     internal_router,
+    provision_router,
     runtime_router,
     secrets_router,
     tenants_router,
@@ -30,6 +31,7 @@ app.include_router(auth_router.router, prefix="/api/v1")
 app.include_router(tenants_router.router, prefix="/api/v1")
 app.include_router(secrets_router.router, prefix="/api/v1")
 app.include_router(runtime_router.router, prefix="/api/v1")
+app.include_router(provision_router.router, prefix="/api/v1")
 app.include_router(internal_router.router)
 
 metrics_app = make_asgi_app()

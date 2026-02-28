@@ -154,7 +154,16 @@ class TenantService:
             raise ValueError(f"Tenant {tenant_id} not found")
 
         secrets = await self._vault.get_decrypted_secrets(session, tenant_id)
-        container_id = self._orch.start_container(tenant, env_secrets=secrets)
+
+        provider_env_var: str | None = None
+        if tenant.provider:
+            from octw.models.provider import get_provider
+            spec = get_provider(tenant.provider)
+            provider_env_var = spec.env_var
+
+        container_id = self._orch.start_container(
+            tenant, env_secrets=secrets, provider_env_var=provider_env_var,
+        )
 
         await session.execute(
             update(TenantRow)
@@ -367,6 +376,7 @@ class TenantService:
             network_id=row.network_id,
             openclaw_image=row.openclaw_image,
             openclaw_digest=row.openclaw_digest,
+            provider=row.provider,
             last_activity_at=row.last_activity_at,
             created_at=row.created_at,
             updated_at=row.updated_at,

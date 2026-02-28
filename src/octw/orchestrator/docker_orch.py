@@ -107,12 +107,136 @@ class DockerOrchestrator:
         except Exception as e:
             log.warning("edge_connect_failed", tenant_id=str(tenant_id), error=str(e))
 
+    # --- Init / Onboarding ---
+
+    def run_init_job(
+        self,
+        tenant: Tenant,
+        provider_env_var: str | None = None,
+        provider_model: str | None = None,
+        env_secrets: dict[str, str] | None = None,
+        timeout: int = 120,
+    ) -> str:
+        """Run a one-shot container to onboard OpenClaw for this tenant."""
+        init_name = f"octw_init_{tenant.tenant_id}"
+        image = self._image_ref(tenant)
+        dirs = self.create_tenant_dirs(tenant.tenant_id)
+
+        env: dict[str, str] = {}
+        if provider_env_var:
+            api_key = settings.get_provider_api_key(provider_env_var)
+            if api_key:
+                env[provider_env_var] = api_key
+        if provider_model:
+            env["OPENCLAW_DEFAULT_MODEL"] = provider_model
+        if env_secrets:
+            env.update(env_secrets)
+
+        mounts = [
+            Mount(target=CONTAINER_STATE_DIR, source=dirs["state"], type="bind"),
+            Mount(target=CONTAINER_WORKSPACE_DIR, source=dirs["workspace"], type="bind"),
+        ]
+
+        try:
+            old = self._client.containers.get(init_name)
+            old.remove(force=True)
+        except NotFound:
+            pass
+
+        onboard_cmd = (
+            "openclaw onboard --non-interactive"
+            " --mode local"
+            " --flow quickstart"
+            " --secret-input-mode ref"
+            " --accept-risk"
+        )
+
+        log.info("init_job_starting", tenant_id=str(tenant.tenant_id))
+        container = self._client.containers.run(
+            image=image,
+            name=init_name,
+            command=["sh", "-c", onboard_cmd],
+            detach=True,
+            environment=env,
+            mounts=mounts,
+            user="1000:1000",
+            labels={"octw.tenant_id": str(tenant.tenant_id), "octw.role": "init"},
+        )
+
+        result = container.wait(timeout=timeout)
+        output = container.logs().decode(errors="replace")
+        exit_code = result.get("StatusCode", -1)
+        container.remove()
+
+        if exit_code != 0:
+            log.error(
+                "init_job_failed",
+                tenant_id=str(tenant.tenant_id),
+                exit_code=exit_code,
+                output=output[-2000:],
+            )
+            raise RuntimeError(
+                f"OpenClaw onboarding failed (exit {exit_code}): {output[-500:]}"
+            )
+
+        log.info("init_job_completed", tenant_id=str(tenant.tenant_id))
+        return output
+
+    def configure_tenant(
+        self,
+        tenant_id: uuid.UUID,
+        provider_env_var: str | None = None,
+        provider_model: str | None = None,
+    ) -> None:
+        """Configure webchat, gateway, and model provider in OpenClaw config."""
+        state_dir = Path(settings.tenant_base_dir) / str(tenant_id) / "state"
+        config_path = state_dir / "openclaw.json"
+        if not config_path.exists():
+            log.warning("config_not_found", tenant_id=str(tenant_id))
+            return
+
+        import json
+
+        config = json.loads(config_path.read_text())
+
+        # WebChat
+        if "web" not in config:
+            config["web"] = {}
+        config["web"]["webchat"] = {
+            "enabled": True,
+            "port": settings.webchat_port,
+        }
+
+        # Gateway
+        config["gateway"] = config.get("gateway", {})
+        config["gateway"]["bind"] = "lan"
+        config["gateway"]["port"] = OPENCLAW_GATEWAY_PORT
+
+        # Model provider
+        if provider_model and provider_env_var:
+            provider_name, model_name = provider_model.split("/", 1)
+            config["models"] = config.get("models", {})
+            config["models"]["default"] = provider_model
+            providers = config["models"].get("providers", {})
+            providers[provider_name] = {
+                "apiKey": {"$ref": f"env:{provider_env_var}"},
+            }
+            config["models"]["providers"] = providers
+
+        config_path.write_text(json.dumps(config, indent=2))
+        log.info(
+            "tenant_configured",
+            tenant_id=str(tenant_id),
+            provider_model=provider_model,
+        )
+
     # --- Container lifecycle ---
 
     def start_container(
         self,
         tenant: Tenant,
         env_secrets: dict[str, str] | None = None,
+        provider_env_var: str | None = None,
     ) -> str:
         name = self._container_name(tenant.tenant_id)
         image = self._image_ref(tenant)
@@ -124,6 +248,11 @@ class DockerOrchestrator:
             "OPENCLAW_GATEWAY_PORT": str(OPENCLAW_GATEWAY_PORT),
             "OPENCLAW_CANVAS_PORT": str(OPENCLAW_CANVAS_PORT),
         }
+        # Inject the selected provider's API key from server config
+        if provider_env_var:
+            api_key = settings.get_provider_api_key(provider_env_var)
+            if api_key:
+                env[provider_env_var] = api_key
         if env_secrets:
             env.update(env_secrets)
 

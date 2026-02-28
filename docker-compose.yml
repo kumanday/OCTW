@@ -41,6 +41,9 @@ services:
       OCTW_REDIS_URL: "redis://octw-cache:6379/0"
       OCTW_KEK: "${OCTW_KEK}"
       OCTW_JWT_SECRET: "${OCTW_JWT_SECRET:-change-me-in-production}"
+      OCTW_ZAI_API_KEY: "${OCTW_ZAI_API_KEY:-}"
+      OCTW_MOONSHOT_API_KEY: "${OCTW_MOONSHOT_API_KEY:-}"
+      OCTW_MINIMAX_API_KEY: "${OCTW_MINIMAX_API_KEY:-}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/octw:/var/lib/octw

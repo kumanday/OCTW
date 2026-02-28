@@ -31,7 +31,23 @@ class OCTWSettings(BaseSettings):
     idle_pause_seconds: int = 1800  # 30 min
     idle_stop_seconds: int = 28800  # 8 hours
 
+    # Shared provider API keys (set on the host, used for all tenants).
+    zai_api_key: str | None = None
+    moonshot_api_key: str | None = None
+    minimax_api_key: str | None = None
+
+    # WebChat is enabled by default during onboarding.
+    webchat_port: int = 18790
+
     log_level: str = "INFO"
+
+    def get_provider_api_key(self, env_var: str) -> str | None:
+        mapping = {
+            "ZAI_API_KEY": self.zai_api_key,
+            "MOONSHOT_API_KEY": self.moonshot_api_key,
+            "MINIMAX_API_KEY": self.minimax_api_key,
+        }
+        return mapping.get(env_var)
 
 
 settings = OCTWSettings()

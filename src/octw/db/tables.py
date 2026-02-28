@@ -37,6 +37,7 @@ class TenantRow(Base):
     network_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     openclaw_image: Mapped[str | None] = mapped_column(String(300), nullable=True)
     openclaw_digest: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
