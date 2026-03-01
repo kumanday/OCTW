@@ -172,7 +172,12 @@ class DockerOrchestrator:
         exit_code = result.get("StatusCode", -1)
         container.remove()
 
-        if exit_code != 0:
+        # The onboard command writes config/workspace then tries to start the
+        # gateway and connect via WebSocket. In a one-shot init container the
+        # gateway isn't running, so it exits 1 with a WS close error. This is
+        # expected -- check that the config file was actually created.
+        config_created = "Updated" in output and "openclaw.json" in output
+        if exit_code != 0 and not config_created:
             log.error(
                 "init_job_failed",
                 tenant_id=str(tenant.tenant_id),
@@ -181,6 +186,13 @@ class DockerOrchestrator:
             )
             raise RuntimeError(
                 f"OpenClaw onboarding failed (exit {exit_code}): {output[-500:]}"
+            )
+
+        if exit_code != 0:
+            log.info(
+                "init_job_partial_success",
+                tenant_id=str(tenant.tenant_id),
+                detail="Config written; gateway connection expected to fail in init container",
             )
 
         log.info("init_job_completed", tenant_id=str(tenant.tenant_id))
