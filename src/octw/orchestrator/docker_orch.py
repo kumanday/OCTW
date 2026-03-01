@@ -61,6 +61,7 @@ class DockerOrchestrator:
                     f"sudo chown $USER {settings.tenant_base_dir}"
                 ) from None
             os.chmod(d, stat.S_IRWXU)  # 0700
+            os.chown(d, 1000, 1000)
         log.info("tenant_dirs_created", tenant_id=str(tenant_id), dirs=dirs)
         return dirs
 
