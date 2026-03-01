@@ -259,3 +259,50 @@ All endpoints accept either a UUID or slug as the `{identifier}`.
 ```json
 { "state": "running", "ip": "172.18.0.5" }
 ```
+
+---
+
+## Metrics
+
+### GET `/metrics`
+
+Prometheus-format metrics endpoint. No authentication required.
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+Available metrics:
+
+| Metric | Type | Description |
+|---|---|---|
+| `octw_tenant_container_starts_total` | Counter | Tenant container start events (label: `tenant_id`) |
+| `octw_tenant_container_stops_total` | Counter | Tenant container stop events (label: `tenant_id`) |
+| `octw_tenant_wake_events_total` | Counter | Wake-on-request events (label: `tenant_id`) |
+| `octw_tenant_pause_events_total` | Counter | Tenant pause events (label: `tenant_id`) |
+| `octw_active_tenants` | Gauge | Currently running tenant containers |
+| `octw_proxy_request_duration_seconds` | Histogram | Edge proxy request duration (labels: `tenant_slug`, `method`, `status`) |
+| `octw_secret_operations_total` | Counter | Secret lifecycle operations (labels: `tenant_id`, `operation`) |
+| `octw_auth_failures_total` | Counter | Authentication failures (label: `reason`) |
+
+A Prometheus scrape config is provided at `configs/prometheus.yml`.
+
+---
+
+## Health
+
+### GET `/health`
+
+Health check endpoint on octw-api. No authentication required.
+
+```json
+{ "status": "ok" }
+```
+
+### GET `/health` (octw-edge, port 8443)
+
+Health check endpoint on octw-edge.
+
+```json
+{ "status": "ok", "service": "octw-edge" }
+```
