@@ -205,10 +205,9 @@ class DockerOrchestrator:
     def configure_tenant(
         self,
         tenant_id: uuid.UUID,
-        provider_env_var: str | None = None,
-        provider_model: str | None = None,
+        provider_spec: object | None = None,
     ) -> None:
-        """Configure webchat, gateway, and model provider in OpenClaw config."""
+        """Configure gateway and model provider in OpenClaw config."""
         state_dir = Path(settings.tenant_base_dir) / str(tenant_id) / "state"
         config_path = state_dir / "openclaw.json"
         if not config_path.exists():
@@ -217,37 +216,55 @@ class DockerOrchestrator:
 
         import json
 
+        from octw.models.provider import ProviderSpec
+
+        spec: ProviderSpec | None = provider_spec  # type: ignore[assignment]
+
         config = json.loads(config_path.read_text())
 
-        # WebChat
-        if "web" not in config:
-            config["web"] = {}
-        config["web"]["webchat"] = {
-            "enabled": True,
-            "port": settings.webchat_port,
-        }
-
-        # Gateway
+        # Gateway: bind to LAN so edge proxy can reach it
         config["gateway"] = config.get("gateway", {})
         config["gateway"]["bind"] = "lan"
         config["gateway"]["port"] = OPENCLAW_GATEWAY_PORT
 
         # Model provider
-        if provider_model and provider_env_var:
-            provider_name, model_name = provider_model.split("/", 1)
-            config["models"] = config.get("models", {})
-            config["models"]["default"] = provider_model
-            providers = config["models"].get("providers", {})
-            providers[provider_name] = {
-                "apiKey": {"$ref": f"env:{provider_env_var}"},
+        if spec:
+            # Set primary model in agents.defaults.model
+            config["agents"] = config.get("agents", {})
+            config["agents"]["defaults"] = config["agents"].get("defaults", {})
+            config["agents"]["defaults"]["model"] = {
+                "primary": spec.model_id,
             }
-            config["models"]["providers"] = providers
+
+            if spec.builtin:
+                # Built-in providers only need the env var set (done at
+                # container start) and the model selection above.
+                # Remove any stale custom providers entry for this provider.
+                providers = config.get("models", {}).get("providers", {})
+                providers.pop(spec.provider_name, None)
+            else:
+                # Custom provider: write full models.providers entry
+                config["models"] = config.get("models", {})
+                config["models"]["mode"] = "merge"
+                providers = config["models"].get("providers", {})
+                provider_entry: dict = {
+                    "apiKey": f"${{{spec.env_var}}}",
+                }
+                if spec.base_url:
+                    provider_entry["baseUrl"] = spec.base_url
+                if spec.api_type:
+                    provider_entry["api"] = spec.api_type
+                provider_entry["models"] = [
+                    {"id": spec.model_name, "name": spec.display_name},
+                ]
+                providers[spec.provider_name] = provider_entry
+                config["models"]["providers"] = providers
 
         config_path.write_text(json.dumps(config, indent=2))
         log.info(
             "tenant_configured",
             tenant_id=str(tenant_id),
-            provider_model=provider_model,
+            provider=spec.model_id if spec else None,
         )
 
     # --- Container lifecycle ---

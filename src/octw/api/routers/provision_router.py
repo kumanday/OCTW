@@ -142,12 +142,8 @@ async def provision_tenant(
         )
         raise HTTPException(status_code=500, detail=f"Onboarding failed: {e}") from e
 
-    # 4. Configure webchat + model provider in openclaw.json
-    orch.configure_tenant(
-        tenant.tenant_id,
-        provider_env_var=provider_spec.env_var,
-        provider_model=provider_spec.model_id,
-    )
+    # 4. Configure gateway + model provider in openclaw.json
+    orch.configure_tenant(tenant.tenant_id, provider_spec=provider_spec)
 
     # 5. Start the tenant container
     await svc.start_tenant(session, tenant.tenant_id)
