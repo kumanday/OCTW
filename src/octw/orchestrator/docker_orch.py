@@ -143,19 +143,22 @@ class DockerOrchestrator:
         except NotFound:
             pass
 
-        onboard_cmd = (
-            "openclaw onboard --non-interactive"
-            " --mode local"
-            " --flow quickstart"
-            " --secret-input-mode ref"
-            " --accept-risk"
-        )
+        onboard_cmd = [
+            "node", "openclaw.mjs", "onboard",
+            "--non-interactive",
+            "--mode", "local",
+            "--flow", "quickstart",
+            "--secret-input-mode", "ref",
+            "--accept-risk",
+        ]
 
         log.info("init_job_starting", tenant_id=str(tenant.tenant_id))
         container = self._client.containers.run(
             image=image,
             name=init_name,
-            command=["sh", "-c", onboard_cmd],
+            entrypoint=[],
+            command=onboard_cmd,
+            working_dir="/app",
             detach=True,
             environment=env,
             mounts=mounts,
