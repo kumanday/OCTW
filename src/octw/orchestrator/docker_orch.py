@@ -71,11 +71,21 @@ class DockerOrchestrator:
 
     def remove_tenant_dirs(self, tenant_id: uuid.UUID) -> None:
         import shutil
+        import subprocess
 
         base = self._tenant_dir(tenant_id)
-        if base.exists():
+        if not base.exists():
+            return
+        try:
             shutil.rmtree(base)
-            log.info("tenant_dirs_removed", tenant_id=str(tenant_id))
+        except PermissionError:
+            # Dirs may be owned by UID 1000; use sudo if available
+            subprocess.run(
+                ["sudo", "rm", "-rf", str(base)],
+                check=True,
+                capture_output=True,
+            )
+        log.info("tenant_dirs_removed", tenant_id=str(tenant_id))
 
     # --- Network ---
 
