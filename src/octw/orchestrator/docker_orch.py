@@ -236,6 +236,10 @@ class DockerOrchestrator:
         config["gateway"] = config.get("gateway", {})
         config["gateway"]["bind"] = "lan"
         config["gateway"]["port"] = OPENCLAW_GATEWAY_PORT
+        config["gateway"]["controlUi"] = config["gateway"].get("controlUi", {})
+        config["gateway"]["controlUi"][
+            "dangerouslyAllowHostHeaderOriginFallback"
+        ] = True
 
         # Model provider
         if spec:
