@@ -1,111 +1,84 @@
 # Security
 
-## Threat Model
+## Trust Boundaries
 
-OCTW assumes tenants are mutually untrusted. Tenants may be adversarial through prompt injection, may install compromised skills or MCP servers, and should never be able to access another tenant's data or network.
+OCTW now has three distinct auth boundaries:
 
-### Primary Threats
+1. `octw-proxy` plus `octw-oidc` authenticate the browser user with OIDC
+2. `octw-api` trusts the forwarded user header only from configured proxy IPs and converts it into the local `octw_session` cookie
+3. each tenant OpenClaw gateway trusts only `octw-edge` via OpenClaw `trusted-proxy` mode
 
-| Threat | Mitigation |
-|---|---|
-| Cross-tenant data access | Per-tenant volumes with `0700` permissions, separate Docker networks |
-| Cross-tenant network movement | Dedicated bridge network per tenant (`internal=true`), no inter-tenant connectivity |
-| Host compromise via container breakout | Non-root execution, all capabilities dropped, `no-new-privileges`, optional gVisor |
-| Secret leakage to disk | AES-256-GCM encryption at rest, env var injection at runtime, SecretRef in OpenClaw config |
-| Ingress auth bypass | JWT validation at edge proxy, forwarded header sanitization |
+That split avoids device pairing, Tailscale login, and dangerous gateway auth bypasses for end users.
 
-## Secret Strategy
+## Public Ingress
 
-### Envelope Encryption
+Public browser traffic terminates at `octw-proxy` over HTTPS.
 
-```
-Master KEK (file at /etc/octw/master.key or OCTW_KEK env var)
-  │
-  └─► encrypts per-tenant DEK (stored in DB as ciphertext)
-        │
-        └─► encrypts each secret value (AES-256-GCM, unique nonce per value)
-```
+- `octw-proxy` uses Nginx `auth_request` against `octw-oidc`
+- `octw-oidc` stores its own login session in a secure cookie
+- Nginx forwards the authenticated email as `X-Forwarded-Email` to OCTW app endpoints
+- `octw-api` accepts that header only when `OCTW_TRUSTED_PROXY_ENABLED=true` and the caller IP matches `OCTW_TRUSTED_PROXY_IPS`
 
-- **KEK** — 32-byte AES key, stored outside the database (file or env var). Single point of trust.
-- **DEK** — one random 32-byte key per tenant, encrypted by KEK and stored in `tenant_deks` table.
-- **Secret values** — encrypted by the tenant's DEK using AES-256-GCM with a unique 12-byte nonce.
+The browser never receives raw tenant credentials and never connects directly to tenant container IPs.
 
-### Runtime Secret Delivery
+## OCTW Browser Session
 
-1. Secrets are decrypted **only** when starting or waking a tenant container.
-2. Decrypted values are injected as **environment variables** into the container process.
-3. Secrets are **never written** to the tenant's state volume or config files by OCTW.
-4. OpenClaw config uses **SecretRef** (`{"$ref": "env:ZAI_API_KEY"}`) to reference env vars without embedding values.
+After a successful OIDC-authenticated request, `octw-api` creates `octw_session`:
 
-### Secret Categories
+- signed with `OCTW_JWT_SECRET`
+- `HttpOnly`
+- `SameSite=Lax`
+- `Secure` when `OCTW_PUBLIC_BASE_URL` is HTTPS
 
-| Category | Example | Storage |
-|---|---|---|
-| Provider API keys (shared) | `ZAI_API_KEY` | Server config (`OCTW_ZAI_API_KEY`), injected at runtime |
-| Per-tenant secrets | Channel tokens, custom keys | Encrypted in DB, injected at runtime |
-| Platform secrets | JWT secret, DB password | Server environment only |
-| Infrastructure secrets | KEK, TLS keys | File or env, never in DB |
+`octw-edge` uses that cookie for both HTTP proxying and the `/t/{slug}/ws` WebSocket path.
 
-## Container Hardening
+## Tenant Gateway Auth
 
-Every tenant container runs with:
+When OCTW configures a tenant, it rewrites the OpenClaw gateway auth section to:
 
-```yaml
-user: "1000:1000"
-cap_drop: ["ALL"]
-security_opt: ["no-new-privileges:true"]
-pids_limit: 512
-mem_limit: "1536m"
-cpu_quota: 100000
-```
+- `gateway.auth.mode = "trusted-proxy"`
+- `gateway.auth.trustedProxy.userHeader = "x-octw-user-email"`
+- `gateway.trustedProxies = [<octw-edge IP>]`
+- `gateway.controlUi.allowedOrigins = [OCTW_PUBLIC_BASE_URL]`
 
-Additionally:
-- No Docker socket mount
-- No host port publishing
-- No privileged mode
-- Restart policy: `unless-stopped`
-- Health check: `curl -sf http://localhost:18789/health` every 30s
+OCTW also removes dangerous fallback controls such as insecure auth and device-auth disable flags.
 
-### Isolation Modes
+## Edge Proxy Controls
 
-| Mode | Runtime | Description |
-|---|---|---|
-| `standard` | Default Docker (runc) | seccomp + AppArmor profiles |
-| `hardened` | gVisor (runsc) | User-space kernel, stronger syscall isolation |
+`octw-edge` now enforces all of the following before proxying to a tenant:
 
-Set per tenant at creation: `"isolation_mode": "hardened"`.
+- validates the OCTW bearer token or `octw_session` cookie
+- checks tenant membership via the internal API
+- wakes paused or stopped tenants on demand
+- strips user-supplied forwarded identity headers and injects its own `x-octw-user-id` and `x-octw-user-email`
+- proxies both HTTP and WebSocket traffic over private Docker networks only
 
-## Network Isolation
+## Secret Handling
 
-- Each tenant gets a dedicated Docker bridge network (`octw_tenant_<id>`).
-- Networks are created with `internal=true` — no outbound internet access by default.
-- Only the edge proxy (octw-edge) is connected to tenant networks.
-- Tenant containers never join the default bridge network.
-- No ports are published to the host.
+Secrets still use envelope encryption:
 
-## Authentication and Authorization
+- KEK from `OCTW_KEK` or `OCTW_KEK_PATH`
+- one DEK per tenant in the database
+- AES-256-GCM for stored ciphertext
+- runtime injection into container environment variables only
 
-### Edge Proxy (octw-edge)
+Provider API keys remain host-level shared secrets. Per-tenant secrets remain encrypted in the database and are never returned by the API.
 
-- Authenticates every request via JWT Bearer token or `octw_session` cookie.
-- Sanitizes forwarded headers (`X-Forwarded-For` is overwritten with client IP).
-- Injects `x-octw-tenant-slug`, `x-octw-user-id`, `x-octw-user-email` headers.
+## Container Isolation
 
-### API (octw-api)
+Each tenant still gets:
 
-- JWT-based auth on all endpoints (except `/auth/login` and `/auth/verify`).
-- RBAC: every tenant operation checks membership and role.
-- Roles: `tenant_admin` > `tenant_user` > `tenant_viewer`.
+- a dedicated Docker bridge network
+- dedicated tenant directories under `/var/lib/octw/tenants/<tenant-id>/`
+- no published host ports
+- non-root execution and dropped Linux capabilities
+- resource limits and idle pause/stop enforcement
 
-## Audit Logging
+`octw-edge` is the only control-plane container attached to tenant networks.
 
-All sensitive actions emit audit events stored in the `audit_events` table:
+## Operational Guidance
 
-- Tenant create / delete
-- Secret set / rotate / delete
-- Container start / stop / pause / wake
-- Member add / remove
-- Route mapping changes
-- Backup / restore
-
-Each event includes `tenant_id`, `user_id`, action type, and detail metadata.
+- Keep `octw-api` and `octw-edge` on localhost-only bindings.
+- Use a real TLS certificate in `configs/certs/` for production.
+- Do not enable OpenClaw insecure auth fallbacks to make browser login easier. The trusted-proxy path replaces that need.
+- If you use Google Group checks in `oauth2-proxy`, treat the Admin SDK service-account JSON under `configs/oauth2-proxy/credentials/` as a production secret.

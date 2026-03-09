@@ -16,6 +16,12 @@ class TenantStatus(enum.StrEnum):
     DELETING = "deleting"
 
 
+class VerificationStatus(enum.StrEnum):
+    PENDING = "pending"
+    VERIFIED = "verified"
+    FAILED = "failed"
+
+
 class ContainerState(enum.StrEnum):
     RUNNING = "running"
     PAUSED = "paused"
@@ -56,6 +62,10 @@ class Tenant(BaseModel):
     name: str
     plan: TenantPlan = TenantPlan.STANDARD
     status: TenantStatus = TenantStatus.PROVISIONING
+    verification_status: VerificationStatus = VerificationStatus.PENDING
+    verification_error: str | None = None
+    verified_at: datetime | None = None
+    owner_user_id: uuid.UUID | None = None
     isolation_mode: IsolationMode = IsolationMode.STANDARD
     resource_limits: ResourceLimits = Field(default_factory=ResourceLimits)
     trusted_proxy_auth: bool = True

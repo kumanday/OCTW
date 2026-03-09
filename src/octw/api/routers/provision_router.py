@@ -3,17 +3,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from octw.api.app_logic import provision_tenant as provision_tenant_impl
 from octw.api.auth import TokenPayload, get_current_user
 from octw.api.deps import get_orchestrator, get_tenant_service, get_vault_service
 from octw.common.config import settings
 from octw.common.logging import get_logger
 from octw.db.engine import get_session
-from octw.db.tables import TenantRow
 from octw.models.provider import PROVIDERS, get_provider
-from octw.models.tenant import TenantCreate, TenantPlan
 from octw.orchestrator.docker_orch import DockerOrchestrator
 from octw.orchestrator.tenant_service import TenantService
 from octw.vault.service import VaultService
@@ -40,6 +38,8 @@ class ProvisionResponse(BaseModel):
     provider: str
     model: str
     url: str
+    verification_status: str
+    verification_error: str | None = None
 
 
 @router.get("/providers")
@@ -77,10 +77,11 @@ async def provision_tenant(
     """
     # 0. Validate provider
     try:
-        provider_spec = get_provider(req.provider)
+        get_provider(req.provider)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    provider_spec = get_provider(req.provider)
     api_key = settings.get_provider_api_key(provider_spec.env_var)
     if not api_key:
         raise HTTPException(
@@ -91,82 +92,42 @@ async def provision_tenant(
             ),
         )
 
-    existing = await svc.get_tenant_by_slug(session, req.slug)
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Tenant with slug '{req.slug}' already exists",
-        )
-
-    # 1. Create tenant
-    tenant_req = TenantCreate(
-        slug=req.slug,
-        name=req.name,
-        plan=TenantPlan.STANDARD,
-        trusted_proxy_auth=True,
-    )
-    tenant = await svc.create_tenant(session, tenant_req, creator_user_id=user.user_id)
-    await session.flush()
-
-    # Store the provider choice on the tenant row
-    await session.execute(
-        update(TenantRow)
-        .where(TenantRow.tenant_id == tenant.tenant_id)
-        .values(provider=provider_spec.key.value)
-    )
-    await session.flush()
-
-    # 2. Store per-tenant secrets (if any beyond the shared provider key)
-    if req.secrets:
-        for secret_name, secret_value in req.secrets.items():
-            await vault_svc.store_secret(
-                session, tenant.tenant_id, secret_name, secret_value,
-                target_env_var=secret_name,
-            )
-        await session.flush()
-
-    # 3. Run OpenClaw onboarding init job
     try:
-        env_secrets = await vault_svc.get_decrypted_secrets(session, tenant.tenant_id)
-        orch.run_init_job(
-            tenant,
-            provider_env_var=provider_spec.env_var,
-            provider_model=provider_spec.model_id,
-            env_secrets=env_secrets,
+        provisioned = await provision_tenant_impl(
+            session=session,
+            svc=svc,
+            orch=orch,
+            vault_svc=vault_svc,
+            user=user,
+            slug=req.slug,
+            name=req.name,
+            provider_key=req.provider,
+            secrets=req.secrets,
         )
     except RuntimeError as e:
         log.error(
             "provision_init_failed",
-            tenant_id=str(tenant.tenant_id),
+            slug=req.slug,
             error=str(e),
         )
         raise HTTPException(status_code=500, detail=f"Onboarding failed: {e}") from e
 
-    # 4. Configure gateway + model provider in openclaw.json
-    orch.configure_tenant(tenant.tenant_id, provider_spec=provider_spec)
-
-    # 5. Start the tenant container
-    await svc.start_tenant(session, tenant.tenant_id)
-    await session.commit()
-
-    # 6. Build access URL
-    base_url = settings.edge_domain.rstrip("/")
-    url = f"https://{base_url}/{req.slug}/"
-
     log.info(
         "tenant_provisioned",
-        tenant_id=str(tenant.tenant_id),
-        slug=req.slug,
-        provider=provider_spec.key.value,
-        model=provider_spec.model_id,
-        url=url,
+        tenant_id=provisioned.tenant_id,
+        slug=provisioned.slug,
+        provider=provisioned.provider,
+        model=provisioned.model,
+        url=provisioned.url,
     )
 
     return ProvisionResponse(
-        tenant_id=str(tenant.tenant_id),
-        slug=req.slug,
-        status="running",
-        provider=provider_spec.key.value,
-        model=provider_spec.model_id,
-        url=url,
+        tenant_id=provisioned.tenant_id,
+        slug=provisioned.slug,
+        status=provisioned.status,
+        provider=provisioned.provider,
+        model=provisioned.model,
+        url=provisioned.url,
+        verification_status=provisioned.verification_status,
+        verification_error=provisioned.verification_error,
     )

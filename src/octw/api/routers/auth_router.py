@@ -3,11 +3,11 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from octw.api.auth import create_access_token, get_or_create_user
+from octw.api.auth import create_access_token, get_or_create_user, set_session_cookie
 from octw.db.engine import get_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -42,7 +42,11 @@ async def login(req: LoginRequest, session: AsyncSession = Depends(get_session))
 
 
 @router.post("/verify")
-async def verify(req: VerifyRequest, session: AsyncSession = Depends(get_session)):
+async def verify(
+    req: VerifyRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+):
     pending = _pending_tokens.pop(req.token, None)
     if not pending or pending["expires"] < datetime.utcnow():
         raise HTTPException(status_code=401, detail="Invalid or expired token")
@@ -50,6 +54,7 @@ async def verify(req: VerifyRequest, session: AsyncSession = Depends(get_session
     user = await get_or_create_user(session, pending["email"])
     await session.commit()
     access_token = create_access_token(user.user_id, user.email)
+    set_session_cookie(response, access_token)
     return SessionResponse(
         access_token=access_token,
         user_id=str(user.user_id),

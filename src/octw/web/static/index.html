@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OCTW Chat</title>
+    <link rel="stylesheet" href="/app/static/app.css" />
+  </head>
+  <body>
+    <div id="app" class="shell">
+      <section class="panel hero" id="landing">
+        <p class="eyebrow">OpenClaw Tenant Wrapper</p>
+        <h1>Deploy once. Resume straight into chat.</h1>
+        <p class="lede" id="summary">Checking your workspace.</p>
+        <button id="deploy-button" class="button primary" hidden>Deploy Workspace</button>
+        <p id="status" class="status"></p>
+      </section>
+
+      <section class="chat-shell" id="chat-shell" hidden>
+        <aside class="panel sidebar">
+          <p class="eyebrow">Workspace</p>
+          <h2 id="tenant-name">Chat</h2>
+          <p id="tenant-meta" class="muted"></p>
+          <button id="resume-button" class="button">Resume / Wake</button>
+        </aside>
+        <main class="panel chat-panel">
+          <div id="messages" class="messages"></div>
+          <form id="composer" class="composer">
+            <textarea id="prompt" rows="3" placeholder="Ask OpenClaw to do something useful."></textarea>
+            <div class="composer-actions">
+              <span id="connection" class="muted">Disconnected</span>
+              <button id="send-button" class="button primary" type="submit">Send</button>
+            </div>
+          </form>
+        </main>
+      </section>
+    </div>
+    <script type="module" src="/app/static/app.js"></script>
+  </body>
+</html>

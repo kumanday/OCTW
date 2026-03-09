@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
+import textwrap
+import time
 import uuid
 from pathlib import Path
 
@@ -20,6 +23,82 @@ OPENCLAW_CANVAS_PORT = 18790
 CONTAINER_HOME = "/home/node"
 CONTAINER_STATE_DIR = f"{CONTAINER_HOME}/.openclaw"
 CONTAINER_WORKSPACE_DIR = f"{CONTAINER_HOME}/.openclaw/workspace"
+
+WS_PROBE_SCRIPT = textwrap.dedent(
+    """
+    import asyncio
+    import json
+    import sys
+    import websockets
+
+    async def main() -> int:
+        uri, origin, email = sys.argv[1:4]
+        async with websockets.connect(
+            uri,
+            additional_headers={
+                "Origin": origin,
+                "x-octw-user-email": email,
+                "x-forwarded-for": "127.0.0.1",
+                "x-forwarded-proto": "https",
+                "x-forwarded-host": origin.replace("https://", "").replace("http://", ""),
+            },
+            open_timeout=10,
+            close_timeout=5,
+            max_size=1_000_000,
+        ) as ws:
+            challenge = None
+            try:
+                first = json.loads(await asyncio.wait_for(ws.recv(), timeout=0.75))
+            except asyncio.TimeoutError:
+                first = None
+            if first and first.get("type") == "event" and first.get("event") == "connect.challenge":
+                payload = first.get("payload") or {}
+                challenge = payload.get("nonce")
+            req = {
+                "type": "req",
+                "id": "octw-probe",
+                "method": "connect",
+                "params": {
+                    "minProtocol": 3,
+                    "maxProtocol": 3,
+                    "client": {
+                        "id": "control-ui",
+                        "version": "octw-probe",
+                        "platform": "linux",
+                        "mode": "webchat",
+                    },
+                    "role": "operator",
+                    "scopes": ["operator.read", "operator.write", "operator.admin"],
+                    "caps": [],
+                    "commands": [],
+                    "permissions": {},
+                    "locale": "en-US",
+                    "userAgent": "octw-probe",
+                },
+            }
+            if challenge:
+                req["params"]["challengeNonce"] = challenge
+            await ws.send(json.dumps(req))
+            response = json.loads(await ws.recv())
+            if response.get("type") != "res" or not response.get("ok"):
+                raise RuntimeError(json.dumps(response))
+            payload = response.get("payload") or {}
+            if payload.get("type") != "hello-ok":
+                raise RuntimeError(json.dumps(response))
+            await ws.send(json.dumps({
+                "type": "req",
+                "id": "octw-status",
+                "method": "health",
+                "params": {},
+            }))
+            health = json.loads(await ws.recv())
+            if health.get("type") != "res" or not health.get("ok"):
+                raise RuntimeError(json.dumps(health))
+        return 0
+
+    raise SystemExit(asyncio.run(main()))
+    """
+).strip()
 
 
 class DockerOrchestrator:
@@ -42,6 +121,9 @@ class DockerOrchestrator:
             return f"{ref}@{tenant.openclaw_digest}"
         return tenant.openclaw_image or settings.openclaw_image
 
+    def _edge_container(self):
+        return self._client.containers.get(settings.edge_container_name)
+
     # --- Filesystem ---
 
     def create_tenant_dirs(self, tenant_id: uuid.UUID) -> dict[str, str]:
@@ -61,17 +143,16 @@ class DockerOrchestrator:
                     f"sudo chown $USER {settings.tenant_base_dir}"
                 ) from None
             try:
-                os.chmod(d, stat.S_IRWXU)  # 0700
+                os.chmod(d, stat.S_IRWXU)
                 if os.getuid() == 0:
                     os.chown(d, 1000, 1000)
             except OSError:
-                pass  # already exists with correct permissions
+                pass
         log.info("tenant_dirs_created", tenant_id=str(tenant_id), dirs=dirs)
         return dirs
 
     def remove_tenant_dirs(self, tenant_id: uuid.UUID) -> None:
         import shutil
-        import subprocess
 
         base = self._tenant_dir(tenant_id)
         if not base.exists():
@@ -79,12 +160,7 @@ class DockerOrchestrator:
         try:
             shutil.rmtree(base)
         except PermissionError:
-            # Dirs may be owned by UID 1000; use sudo if available
-            subprocess.run(
-                ["sudo", "rm", "-rf", str(base)],
-                check=True,
-                capture_output=True,
-            )
+            subprocess.run(["sudo", "rm", "-rf", str(base)], check=True, capture_output=True)
         log.info("tenant_dirs_removed", tenant_id=str(tenant_id))
 
     # --- Network ---
@@ -114,13 +190,34 @@ class DockerOrchestrator:
         except NotFound:
             pass
 
-    def connect_edge_to_network(self, tenant_id: uuid.UUID, edge_container: str) -> None:
+    def connect_edge_to_network(
+        self, tenant_id: uuid.UUID, edge_container: str | None = None
+    ) -> str | None:
         name = self._network_name(tenant_id)
+        target = edge_container or settings.edge_container_name
         try:
             net = self._client.networks.get(name)
-            net.connect(edge_container)
+            net.reload()
+            connected = net.attrs.get("Containers", {}) or {}
+            edge = self._client.containers.get(target)
+            if edge.id not in connected:
+                net.connect(edge)
+                log.info("edge_connected", tenant_id=str(tenant_id), edge_container=edge.name)
+            return self.get_named_container_ip(target, name)
         except Exception as e:
             log.warning("edge_connect_failed", tenant_id=str(tenant_id), error=str(e))
+            return None
+
+    def get_named_container_ip(self, container_name: str, network_name: str) -> str | None:
+        try:
+            container = self._client.containers.get(container_name)
+        except NotFound:
+            return None
+        nets = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+        info = nets.get(network_name)
+        if info:
+            return info.get("IPAddress")
+        return None
 
     # --- Init / Onboarding ---
 
@@ -132,7 +229,6 @@ class DockerOrchestrator:
         env_secrets: dict[str, str] | None = None,
         timeout: int = 120,
     ) -> str:
-        """Run a one-shot container to onboard OpenClaw for this tenant."""
         init_name = f"octw_init_{tenant.tenant_id}"
         image = self._image_ref(tenant)
         dirs = self.create_tenant_dirs(tenant.tenant_id)
@@ -186,10 +282,6 @@ class DockerOrchestrator:
         exit_code = result.get("StatusCode", -1)
         container.remove()
 
-        # The onboard command writes config/workspace then tries to start the
-        # gateway and connect via WebSocket. In a one-shot init container the
-        # gateway isn't running, so it exits 1 with a WS close error. This is
-        # expected -- check that the config file was actually created.
         config_created = "Updated" in output and "openclaw.json" in output
         if exit_code != 0 and not config_created:
             log.error(
@@ -212,12 +304,15 @@ class DockerOrchestrator:
         log.info("init_job_completed", tenant_id=str(tenant.tenant_id))
         return output
 
+    def tenant_config_exists(self, tenant_id: uuid.UUID) -> bool:
+        state_dir = Path(settings.tenant_base_dir) / str(tenant_id) / "state"
+        return (state_dir / "openclaw.json").exists()
+
     def configure_tenant(
         self,
         tenant_id: uuid.UUID,
         provider_spec: object | None = None,
     ) -> None:
-        """Configure gateway and model provider in OpenClaw config."""
         state_dir = Path(settings.tenant_base_dir) / str(tenant_id) / "state"
         config_path = state_dir / "openclaw.json"
         if not config_path.exists():
@@ -232,45 +327,42 @@ class DockerOrchestrator:
 
         config = json.loads(config_path.read_text())
 
-        # Gateway: bind to LAN so edge proxy can reach it
         config["gateway"] = config.get("gateway", {})
         config["gateway"]["bind"] = "lan"
         config["gateway"]["port"] = OPENCLAW_GATEWAY_PORT
-        config["gateway"]["controlUi"] = config["gateway"].get("controlUi", {})
-        config["gateway"]["controlUi"][
-            "dangerouslyAllowHostHeaderOriginFallback"
-        ] = True
+        edge_ip = self.connect_edge_to_network(tenant_id)
+        config["gateway"]["trustedProxies"] = [ip for ip in [edge_ip] if ip]
+        config["gateway"]["auth"] = config["gateway"].get("auth", {})
+        config["gateway"]["auth"]["mode"] = "trusted-proxy"
+        config["gateway"]["auth"]["trustedProxy"] = {
+            "userHeader": "x-octw-user-email",
+            "requiredHeaders": ["x-forwarded-proto", "x-forwarded-host"],
+        }
+        control_ui = config["gateway"].get("controlUi", {})
+        control_ui["allowedOrigins"] = [settings.public_base_url.rstrip("/")]
+        control_ui.pop("dangerouslyAllowHostHeaderOriginFallback", None)
+        control_ui.pop("allowInsecureAuth", None)
+        control_ui.pop("dangerouslyDisableDeviceAuth", None)
+        config["gateway"]["controlUi"] = control_ui
 
-        # Model provider
         if spec:
-            # Set primary model in agents.defaults.model
             config["agents"] = config.get("agents", {})
             config["agents"]["defaults"] = config["agents"].get("defaults", {})
-            config["agents"]["defaults"]["model"] = {
-                "primary": spec.model_id,
-            }
+            config["agents"]["defaults"]["model"] = {"primary": spec.model_id}
 
             if spec.builtin:
-                # Built-in providers only need the env var set (done at
-                # container start) and the model selection above.
-                # Remove any stale custom providers entry for this provider.
                 providers = config.get("models", {}).get("providers", {})
                 providers.pop(spec.provider_name, None)
             else:
-                # Custom provider: write full models.providers entry
                 config["models"] = config.get("models", {})
                 config["models"]["mode"] = "merge"
                 providers = config["models"].get("providers", {})
-                provider_entry: dict = {
-                    "apiKey": f"${{{spec.env_var}}}",
-                }
+                provider_entry: dict[str, object] = {"apiKey": f"${{{spec.env_var}}}"}
                 if spec.base_url:
                     provider_entry["baseUrl"] = spec.base_url
                 if spec.api_type:
                     provider_entry["api"] = spec.api_type
-                provider_entry["models"] = [
-                    {"id": spec.model_name, "name": spec.display_name},
-                ]
+                provider_entry["models"] = [{"id": spec.model_name, "name": spec.display_name}]
                 providers[spec.provider_name] = provider_entry
                 config["models"]["providers"] = providers
 
@@ -299,7 +391,6 @@ class DockerOrchestrator:
             "OPENCLAW_GATEWAY_PORT": str(OPENCLAW_GATEWAY_PORT),
             "OPENCLAW_CANVAS_PORT": str(OPENCLAW_CANVAS_PORT),
         }
-        # Inject the selected provider's API key from server config
         if provider_env_var:
             api_key = settings.get_provider_api_key(provider_env_var)
             if api_key:
@@ -308,32 +399,23 @@ class DockerOrchestrator:
             env.update(env_secrets)
 
         mounts = [
-            Mount(
-                target=CONTAINER_STATE_DIR,
-                source=dirs["state"],
-                type="bind",
-            ),
-            Mount(
-                target=CONTAINER_WORKSPACE_DIR,
-                source=dirs["workspace"],
-                type="bind",
-            ),
+            Mount(target=CONTAINER_STATE_DIR, source=dirs["state"], type="bind"),
+            Mount(target=CONTAINER_WORKSPACE_DIR, source=dirs["workspace"], type="bind"),
         ]
 
-        runtime = None
-        if tenant.isolation_mode == IsolationMode.HARDENED:
-            runtime = "runsc"
-
+        runtime = "runsc" if tenant.isolation_mode == IsolationMode.HARDENED else None
         security_opt = ["no-new-privileges:true"]
         try:
             existing = self._client.containers.get(name)
             if existing.status == "paused":
                 existing.unpause()
+                self.connect_edge_to_network(tenant.tenant_id)
                 log.info("container_unpaused", tenant_id=str(tenant.tenant_id))
                 return existing.id
             if existing.status == "exited":
                 existing.remove()
             elif existing.status == "running":
+                self.connect_edge_to_network(tenant.tenant_id)
                 return existing.id
             else:
                 existing.remove(force=True)
@@ -342,6 +424,7 @@ class DockerOrchestrator:
 
         network_name = self._network_name(tenant.tenant_id)
         self.create_network(tenant.tenant_id)
+        self.connect_edge_to_network(tenant.tenant_id)
 
         container = self._client.containers.run(
             image=image,
@@ -365,17 +448,13 @@ class DockerOrchestrator:
             restart_policy={"Name": "unless-stopped"},
             healthcheck={
                 "test": ["CMD", "curl", "-sf", f"http://localhost:{OPENCLAW_GATEWAY_PORT}/health"],
-                "interval": 30_000_000_000,  # 30s in ns
+                "interval": 30_000_000_000,
                 "timeout": 5_000_000_000,
                 "retries": 3,
                 "start_period": 10_000_000_000,
             },
         )
-        log.info(
-            "container_started",
-            tenant_id=str(tenant.tenant_id),
-            container_id=container.id,
-        )
+        log.info("container_started", tenant_id=str(tenant.tenant_id), container_id=container.id)
         return container.id
 
     def stop_container(self, tenant_id: uuid.UUID, timeout: int = 30) -> None:
@@ -404,6 +483,7 @@ class DockerOrchestrator:
             container = self._client.containers.get(name)
             if container.status == "paused":
                 container.unpause()
+                self.connect_edge_to_network(tenant_id)
                 log.info("container_unpaused", tenant_id=str(tenant_id))
         except NotFound:
             pass
@@ -429,7 +509,7 @@ class DockerOrchestrator:
         name = self._container_name(tenant_id)
         try:
             container = self._client.containers.get(name)
-            kwargs: dict = {"tail": tail, "timestamps": True}
+            kwargs: dict[str, object] = {"tail": tail, "timestamps": True}
             if since:
                 kwargs["since"] = since
             return container.logs(**kwargs).decode(errors="replace")
@@ -437,17 +517,55 @@ class DockerOrchestrator:
             return ""
 
     def get_container_ip(self, tenant_id: uuid.UUID) -> str | None:
-        name = self._container_name(tenant_id)
-        network_name = self._network_name(tenant_id)
-        try:
-            container = self._client.containers.get(name)
-            nets = container.attrs.get("NetworkSettings", {}).get("Networks", {})
-            net_info = nets.get(network_name)
-            if net_info:
-                return net_info.get("IPAddress")
-        except NotFound:
-            pass
-        return None
+        return self.get_named_container_ip(
+            self._container_name(tenant_id), self._network_name(tenant_id)
+        )
+
+    def wait_for_gateway_health(self, tenant_id: uuid.UUID, timeout: int = 45) -> None:
+        deadline = time.time() + timeout
+        ip: str | None = None
+        while time.time() < deadline:
+            ip = self.get_container_ip(tenant_id)
+            if not ip:
+                time.sleep(1)
+                continue
+            result = self._edge_container().exec_run([
+                "curl", "-fsS", f"http://{ip}:{OPENCLAW_GATEWAY_PORT}/health"
+            ])
+            if result.exit_code == 0:
+                return
+            time.sleep(1)
+        raise RuntimeError(f"Gateway health check failed for tenant {tenant_id} (last ip={ip})")
+
+    def verify_gateway_ws(self, tenant_id: uuid.UUID, email: str, timeout: int = 45) -> None:
+        deadline = time.time() + timeout
+        ip: str | None = None
+        last_output = ""
+        while time.time() < deadline:
+            ip = self.get_container_ip(tenant_id)
+            if not ip:
+                time.sleep(1)
+                continue
+            result = self._edge_container().exec_run([
+                "/app/.venv/bin/python",
+                "-c",
+                WS_PROBE_SCRIPT,
+                f"ws://{ip}:{OPENCLAW_GATEWAY_PORT}",
+                settings.public_base_url.rstrip("/"),
+                email,
+            ])
+            if isinstance(result.output, (bytes, bytearray)):
+                output = result.output.decode(errors="replace")
+            else:
+                output = str(result.output)
+            last_output = output.strip()
+            if result.exit_code == 0:
+                return
+            time.sleep(1)
+        raise RuntimeError(
+            "Gateway websocket verification failed for tenant "
+            f"{tenant_id}: {last_output or 'unknown error'}"
+        )
 
     def cleanup_tenant(self, tenant_id: uuid.UUID) -> None:
         self.stop_container(tenant_id)

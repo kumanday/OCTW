@@ -1,0 +1,122 @@
+:root {
+  color-scheme: light;
+  --bg: #f3efe6;
+  --panel: rgba(255, 252, 246, 0.92);
+  --line: rgba(38, 34, 28, 0.12);
+  --text: #1f1a15;
+  --muted: #6d6255;
+  --accent: #0b7a75;
+  --accent-2: #f08a24;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Georgia, "Iowan Old Style", serif;
+  background: radial-gradient(circle at top left, #fff7df, transparent 30%), linear-gradient(160deg, #efe4d0, #f5f1ea 50%, #e7efe8);
+  color: var(--text);
+}
+.shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 16px 40px rgba(31, 26, 21, 0.08);
+}
+.hero {
+  padding: 48px;
+  min-height: 280px;
+}
+.hero h1 {
+  font-size: clamp(2.4rem, 4vw, 4.5rem);
+  line-height: 0.95;
+  max-width: 10ch;
+  margin: 0 0 16px;
+}
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  font-size: 0.76rem;
+  margin-bottom: 12px;
+}
+.lede, .muted, .status {
+  color: var(--muted);
+}
+.button {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 20px;
+  font: inherit;
+  cursor: pointer;
+  background: rgba(31, 26, 21, 0.07);
+  color: var(--text);
+}
+.button.primary {
+  background: linear-gradient(135deg, var(--accent), #05504c);
+  color: #fff;
+}
+.chat-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 18px;
+}
+.sidebar, .chat-panel {
+  padding: 24px;
+}
+.messages {
+  height: min(65vh, 720px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.message {
+  padding: 14px 16px;
+  border-radius: 18px;
+  max-width: min(82%, 780px);
+  white-space: pre-wrap;
+}
+.message.user {
+  background: #f4d5b5;
+  margin-left: auto;
+}
+.message.assistant {
+  background: #fff;
+  border: 1px solid var(--line);
+}
+.message.system {
+  background: #edf5f4;
+  border: 1px dashed rgba(11, 122, 117, 0.28);
+  max-width: 100%;
+}
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+textarea {
+  width: 100%;
+  resize: vertical;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  padding: 16px;
+  font: inherit;
+  background: rgba(255,255,255,0.76);
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+@media (max-width: 900px) {
+  .hero { padding: 28px; }
+  .chat-shell { grid-template-columns: 1fr; }
+  .messages { height: 56vh; }
+}

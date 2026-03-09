@@ -19,6 +19,7 @@ from octw.models.tenant import (
     TenantCreate,
     TenantRuntimeInfo,
     TenantStatus,
+    VerificationStatus,
 )
 from octw.orchestrator.docker_orch import DockerOrchestrator
 from octw.vault.service import VaultService
@@ -59,8 +60,10 @@ class TenantService:
         row = TenantRow(
             slug=req.slug,
             name=req.name,
+            owner_user_id=creator_user_id,
             plan=req.plan.value,
             status=TenantStatus.PROVISIONING.value,
+            verification_status=VerificationStatus.PENDING.value,
             isolation_mode=req.isolation_mode.value,
             resource_limits=limits.model_dump(),
             trusted_proxy_auth=req.trusted_proxy_auth,
@@ -74,6 +77,7 @@ class TenantService:
 
         self._orch.create_tenant_dirs(tenant.tenant_id)
         network_id = self._orch.create_network(tenant.tenant_id)
+        self._orch.connect_edge_to_network(tenant.tenant_id)
         row.network_id = network_id
         row.status = TenantStatus.STOPPED.value
         await session.flush()
@@ -92,6 +96,7 @@ class TenantService:
 
         tenant.status = TenantStatus.STOPPED
         tenant.network_id = network_id
+        tenant.owner_user_id = creator_user_id
         log.info("tenant_created", tenant_id=str(tenant.tenant_id), slug=req.slug)
         return tenant
 
@@ -106,6 +111,15 @@ class TenantService:
     ) -> Tenant | None:
         result = await session.execute(
             select(TenantRow).where(TenantRow.slug == slug)
+        )
+        row = result.scalar_one_or_none()
+        return self._row_to_tenant(row) if row else None
+
+    async def get_owner_tenant(
+        self, session: AsyncSession, owner_user_id: uuid.UUID
+    ) -> Tenant | None:
+        result = await session.execute(
+            select(TenantRow).where(TenantRow.owner_user_id == owner_user_id)
         )
         row = result.scalar_one_or_none()
         return self._row_to_tenant(row) if row else None
@@ -155,11 +169,15 @@ class TenantService:
 
         secrets = await self._vault.get_decrypted_secrets(session, tenant_id)
 
+        provider_spec = None
         provider_env_var: str | None = None
         if tenant.provider:
             from octw.models.provider import get_provider
-            spec = get_provider(tenant.provider)
-            provider_env_var = spec.env_var
+            provider_spec = get_provider(tenant.provider)
+            provider_env_var = provider_spec.env_var
+
+        if self._orch.tenant_config_exists(tenant_id):
+            self._orch.configure_tenant(tenant_id, provider_spec=provider_spec)
 
         container_id = self._orch.start_container(
             tenant, env_secrets=secrets, provider_env_var=provider_env_var,
@@ -208,6 +226,7 @@ class TenantService:
     ) -> str:
         state = self._orch.get_container_state(tenant_id)
         if state == ContainerState.RUNNING:
+            self._orch.connect_edge_to_network(tenant_id)
             await self._touch_activity(session, tenant_id)
             tenant = await self.get_tenant(session, tenant_id)
             return tenant.container_id or ""
@@ -223,6 +242,50 @@ class TenantService:
             tenant = await self.get_tenant(session, tenant_id)
             return tenant.container_id or ""
         return await self.start_tenant(session, tenant_id)
+
+    async def verify_tenant(self, session: AsyncSession, tenant_id: uuid.UUID) -> Tenant:
+        tenant = await self.get_tenant(session, tenant_id)
+        if not tenant:
+            raise ValueError(f"Tenant {tenant_id} not found")
+        if not tenant.owner_user_id:
+            raise ValueError(f"Tenant {tenant_id} has no owner for verification")
+
+        owner = await session.get(UserRow, tenant.owner_user_id)
+        if not owner:
+            raise ValueError(f"Tenant {tenant_id} owner not found")
+        if not self._orch.tenant_config_exists(tenant_id):
+            raise RuntimeError(f"Tenant {tenant.slug} is missing openclaw.json")
+
+        self._orch.wait_for_gateway_health(tenant_id)
+        self._orch.verify_gateway_ws(tenant_id, owner.email)
+
+        await session.execute(
+            update(TenantRow)
+            .where(TenantRow.tenant_id == tenant_id)
+            .values(
+                verification_status=VerificationStatus.VERIFIED.value,
+                verification_error=None,
+                verified_at=datetime.utcnow(),
+            )
+        )
+        await session.flush()
+        refreshed = await self.get_tenant(session, tenant_id)
+        if not refreshed:
+            raise ValueError(f"Tenant {tenant_id} disappeared after verification")
+        return refreshed
+
+    async def mark_verification_failed(
+        self, session: AsyncSession, tenant_id: uuid.UUID, error: str
+    ) -> None:
+        await session.execute(
+            update(TenantRow)
+            .where(TenantRow.tenant_id == tenant_id)
+            .values(
+                verification_status=VerificationStatus.FAILED.value,
+                verification_error=error,
+            )
+        )
+        await session.flush()
 
     async def get_runtime_info(
         self, session: AsyncSession, tenant_id: uuid.UUID
@@ -253,8 +316,6 @@ class TenantService:
             .values(last_activity_at=datetime.utcnow())
         )
         await session.flush()
-
-    # --- Membership ---
 
     async def _ensure_membership(
         self,
@@ -367,8 +428,12 @@ class TenantService:
             tenant_id=row.tenant_id,
             slug=row.slug,
             name=row.name,
+            owner_user_id=row.owner_user_id,
             plan=row.plan,
             status=row.status,
+            verification_status=row.verification_status,
+            verification_error=row.verification_error,
+            verified_at=row.verified_at,
             isolation_mode=row.isolation_mode,
             resource_limits=limits,
             trusted_proxy_auth=row.trusted_proxy_auth,
