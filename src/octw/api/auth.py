@@ -110,7 +110,10 @@ async def get_browser_user(
 ) -> tuple[TokenPayload, bool]:
     token = _extract_cookie_token(request)
     if token:
-        return decode_token(token), False
+        payload = decode_token(token)
+        row = await session.get(UserRow, payload.user_id)
+        if row:
+            return TokenPayload(row.user_id, row.email, payload.tid), False
 
     forwarded_email = get_trusted_proxy_email(request)
     if not forwarded_email:

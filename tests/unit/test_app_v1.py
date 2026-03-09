@@ -44,6 +44,42 @@ async def test_get_browser_user_bootstraps_from_trusted_proxy(monkeypatch):
     assert payload.email == "person@example.com"
 
 
+@pytest.mark.asyncio
+async def test_get_browser_user_rehydrates_when_cookie_user_missing(monkeypatch):
+    stale_user_id = uuid.uuid4()
+    fresh_user_id = uuid.uuid4()
+    stale_token = auth.create_access_token(stale_user_id, "person@example.com")
+
+    async def fake_get_or_create_user(session, email: str):
+        return SimpleNamespace(user_id=fresh_user_id, email=email)
+
+    class FakeSession:
+        async def get(self, model, user_id):
+            assert user_id == stale_user_id
+            return None
+
+    monkeypatch.setattr(settings, "trusted_proxy_enabled", True)
+    monkeypatch.setattr(settings, "trusted_proxy_user_header", "X-Forwarded-Email")
+    monkeypatch.setattr(settings, "trusted_proxy_ips", ["127.0.0.1/32"])
+    monkeypatch.setattr(auth, "get_or_create_user", fake_get_or_create_user)
+
+    request = Request(
+        {
+            "type": "http",
+            "headers": [
+                (b"x-forwarded-email", b"person@example.com"),
+                (b"cookie", f"octw_session={stale_token}".encode()),
+            ],
+            "client": ("127.0.0.1", 1234),
+        }
+    )
+
+    payload, issued = await auth.get_browser_user(request, session=FakeSession())
+    assert issued is True
+    assert payload.user_id == fresh_user_id
+    assert payload.email == "person@example.com"
+
+
 def test_build_user_tenant_slug_is_deterministic():
     user_id = uuid.UUID("11111111-2222-3333-4444-555555555555")
     assert build_user_tenant_slug(user_id) == "u-11111111222233334444"
