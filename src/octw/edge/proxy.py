@@ -205,6 +205,11 @@ async def _iter_upstream_messages(upstream) -> AsyncIterator[str | bytes]:
             break
 
 
+@edge_app.get("/health")
+async def health():
+    return {"status": "ok", "service": "octw-edge"}
+
+
 @edge_app.api_route(
     "/{slug}/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
@@ -252,8 +257,3 @@ async def proxy_slug_root(slug: str, request: Request):
     if slug in _RESERVED_PATHS or not _SLUG_RE.match(slug):
         raise HTTPException(status_code=404, detail="Not found")
     return await proxy_path(slug, "", request)
-
-
-@edge_app.get("/health")
-async def health():
-    return {"status": "ok", "service": "octw-edge"}
