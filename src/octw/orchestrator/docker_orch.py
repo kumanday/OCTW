@@ -178,7 +178,6 @@ class DockerOrchestrator:
         net = self._client.networks.create(
             name=name,
             driver="bridge",
-            internal=True,
             labels={"octw.tenant_id": str(tenant_id)},
         )
         log.info("network_created", tenant_id=str(tenant_id), network_id=net.id)

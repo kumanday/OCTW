@@ -5,11 +5,14 @@ const state = {
   pending: new Map(),
   sessionKey: "main",
   locale: "en",
+  localeForced: false,
 };
 
 const el = {
   heroEyebrow: document.getElementById("hero-eyebrow"),
   heroTitle: document.getElementById("hero-title"),
+  languageLabel: document.getElementById("language-label"),
+  languageSelect: document.getElementById("language-select"),
   landing: document.getElementById("landing"),
   summary: document.getElementById("summary"),
   status: document.getElementById("status"),
@@ -31,6 +34,7 @@ const el = {
 const STRINGS = {
   en: {
     appTitle: "OCTW Chat",
+    language: "Language",
     heroEyebrow: "OpenClaw Tenant Wrapper",
     heroTitle: "Deploy once. Resume straight into chat.",
     checkingWorkspace: "Checking your workspace.",
@@ -72,6 +76,7 @@ const STRINGS = {
   },
   es: {
     appTitle: "Chat de OCTW",
+    language: "Idioma",
     heroEyebrow: "OpenClaw Tenant Wrapper",
     heroTitle: "Despliega una vez. Retoma directo en el chat.",
     checkingWorkspace: "Revisando tu espacio de trabajo.",
@@ -117,9 +122,16 @@ function resolveLocale() {
   const query = new URLSearchParams(window.location.search).get("lang");
   if (query) {
     const normalized = query.toLowerCase();
-    if (normalized.startsWith("es")) return "es";
-    if (normalized.startsWith("en")) return "en";
+    if (normalized.startsWith("es")) {
+      state.localeForced = true;
+      return "es";
+    }
+    if (normalized.startsWith("en")) {
+      state.localeForced = true;
+      return "en";
+    }
   }
+  state.localeForced = false;
   const raw = (navigator.language || "en").toLowerCase();
   if (raw.startsWith("es")) return "es";
   return "en";
@@ -135,6 +147,8 @@ function applyLocale() {
   state.locale = resolveLocale();
   document.documentElement.lang = state.locale;
   document.title = t("appTitle");
+  el.languageLabel.textContent = t("language");
+  el.languageSelect.value = state.locale;
   el.heroEyebrow.textContent = t("heroEyebrow");
   el.heroTitle.textContent = t("heroTitle");
   el.summary.textContent = t("checkingWorkspace");
@@ -394,6 +408,27 @@ el.composer.addEventListener("submit", async (event) => {
   } catch (error) {
     addMessage("system", t("sendFailed", { message: error.message }));
   }
+});
+
+el.prompt.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey) {
+    return;
+  }
+  event.preventDefault();
+  el.composer.requestSubmit();
+});
+
+el.languageSelect.addEventListener("change", (event) => {
+  const value = event.target.value;
+  const url = new URL(window.location.href);
+  if (value === "en") {
+    url.searchParams.set("lang", "en");
+  } else if (value === "es") {
+    url.searchParams.set("lang", "es");
+  } else {
+    url.searchParams.delete("lang");
+  }
+  window.location.assign(url.toString());
 });
 
 applyLocale();

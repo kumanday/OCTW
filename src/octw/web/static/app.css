@@ -21,6 +21,35 @@ body {
   margin: 0 auto;
   padding: 32px 20px 48px;
 }
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+.language-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 252, 246, 0.78);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  backdrop-filter: blur(16px);
+}
+.language-label {
+  font-size: 0.92rem;
+}
+.language-picker select {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.language-picker select:focus {
+  outline: none;
+}
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -162,6 +191,9 @@ textarea {
   to { transform: rotate(360deg); }
 }
 @media (max-width: 900px) {
+  .toolbar {
+    justify-content: flex-start;
+  }
   .hero { padding: 28px; }
   .chat-shell { grid-template-columns: 1fr; }
   .messages { height: 56vh; }
