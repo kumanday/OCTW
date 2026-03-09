@@ -1,5 +1,7 @@
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 
+USER root
+
 RUN apk add --no-cache bash gettext openssl
 
 COPY docker/proxy/entrypoint.sh /entrypoint.sh
