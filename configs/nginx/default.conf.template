@@ -58,14 +58,14 @@ server {
         return 302 /app;
     }
 
-    location /app {
+    location ^~ /app {
         auth_request /oauth2/auth;
         auth_request_set $user_email $upstream_http_x_auth_request_email;
         proxy_set_header X-Forwarded-Email $user_email;
         proxy_pass http://octw-api:8000;
     }
 
-    location /api/v1/app/ {
+    location ^~ /api/v1/app/ {
         auth_request /oauth2/auth;
         auth_request_set $user_email $upstream_http_x_auth_request_email;
         proxy_set_header X-Forwarded-Email $user_email;
