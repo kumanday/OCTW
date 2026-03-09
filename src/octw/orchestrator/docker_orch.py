@@ -85,9 +85,18 @@ WS_PROBE_SCRIPT = textwrap.dedent(
                 "method": "health",
                 "params": {},
             }))
-            health = json.loads(await ws.recv())
-            if health.get("type") != "res" or not health.get("ok"):
-                raise RuntimeError(json.dumps(health))
+            while True:
+                health = json.loads(await ws.recv())
+                if health.get("type") == "event" and health.get("event") == "health":
+                    payload = health.get("payload") or {}
+                    if not payload.get("ok"):
+                        raise RuntimeError(json.dumps(health))
+                    break
+                if health.get("type") != "res" or health.get("id") != "octw-status":
+                    continue
+                if not health.get("ok"):
+                    raise RuntimeError(json.dumps(health))
+                break
         return 0
 
     raise SystemExit(asyncio.run(main()))

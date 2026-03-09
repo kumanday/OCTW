@@ -9,20 +9,20 @@
   <body>
     <div id="app" class="shell">
       <section class="panel hero" id="landing">
-        <p class="eyebrow">OpenClaw Tenant Wrapper</p>
-        <h1>Deploy once. Resume straight into chat.</h1>
+        <p class="eyebrow" id="hero-eyebrow">OpenClaw Tenant Wrapper</p>
+        <h1 id="hero-title">Deploy once. Resume straight into chat.</h1>
         <p class="lede" id="summary">Checking your workspace.</p>
         <button id="deploy-button" class="button primary" hidden>Deploy Workspace</button>
         <div id="activity" class="activity" hidden aria-live="polite" aria-busy="true">
           <span class="spinner" aria-hidden="true"></span>
           <span id="activity-label">Working</span>
         </div>
-        <p id="status" class="status"></p>
+        <p id="status" class="status" hidden></p>
       </section>
 
       <section class="chat-shell" id="chat-shell" hidden>
         <aside class="panel sidebar">
-          <p class="eyebrow">Workspace</p>
+          <p class="eyebrow" id="workspace-eyebrow">Workspace</p>
           <h2 id="tenant-name">Chat</h2>
           <p id="tenant-meta" class="muted"></p>
           <button id="resume-button" class="button">Resume / Wake</button>

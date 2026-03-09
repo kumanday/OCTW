@@ -4,9 +4,12 @@ const state = {
   requestId: 0,
   pending: new Map(),
   sessionKey: "main",
+  locale: "en",
 };
 
 const el = {
+  heroEyebrow: document.getElementById("hero-eyebrow"),
+  heroTitle: document.getElementById("hero-title"),
   landing: document.getElementById("landing"),
   summary: document.getElementById("summary"),
   status: document.getElementById("status"),
@@ -14,6 +17,7 @@ const el = {
   activity: document.getElementById("activity"),
   activityLabel: document.getElementById("activity-label"),
   chatShell: document.getElementById("chat-shell"),
+  workspaceEyebrow: document.getElementById("workspace-eyebrow"),
   messages: document.getElementById("messages"),
   prompt: document.getElementById("prompt"),
   composer: document.getElementById("composer"),
@@ -23,6 +27,129 @@ const el = {
   tenantName: document.getElementById("tenant-name"),
   tenantMeta: document.getElementById("tenant-meta"),
 };
+
+const STRINGS = {
+  en: {
+    appTitle: "OCTW Chat",
+    heroEyebrow: "OpenClaw Tenant Wrapper",
+    heroTitle: "Deploy once. Resume straight into chat.",
+    checkingWorkspace: "Checking your workspace.",
+    deployWorkspace: "Deploy Workspace",
+    working: "Working",
+    workspace: "Workspace",
+    chat: "Chat",
+    resumeWake: "Resume / Wake",
+    promptPlaceholder: "Ask OpenClaw to do something useful.",
+    disconnected: "Disconnected",
+    connecting: "Connecting",
+    authorizing: "Authorizing",
+    connected: "Connected",
+    send: "Send",
+    signedInSummary: "Signed in as {email}. Create your dedicated OpenClaw workspace.",
+    tenantMeta: "{email} · {status} · {verification}",
+    status_running: "running",
+    status_paused: "paused",
+    status_stopped: "stopped",
+    status_error: "error",
+    status_provisioning: "provisioning",
+    verification_verified: "verified",
+    verification_pending: "pending",
+    verification_failed: "failed",
+    authFailed: "Authentication failed: {message}",
+    provisioningActivity: "Provisioning your workspace. This can take a minute or two.",
+    workspaceReady: "Workspace ready.",
+    workspaceResumed: "Workspace resumed.",
+    provisioningFailed: "Provisioning failed: {message}",
+    wakingWorkspace: "Waking your workspace.",
+    workspaceConnected: "Workspace connected.",
+    resumeFailed: "Resume failed: {message}",
+    running: "Running...",
+    sendFailed: "Send failed: {message}",
+    timedOutWaiting: "Timed out waiting for {method}",
+    websocketNotConnected: "WebSocket not connected",
+    gatewayError: "Gateway error",
+  },
+  es: {
+    appTitle: "Chat de OCTW",
+    heroEyebrow: "OpenClaw Tenant Wrapper",
+    heroTitle: "Despliega una vez. Retoma directo en el chat.",
+    checkingWorkspace: "Revisando tu espacio de trabajo.",
+    deployWorkspace: "Desplegar espacio",
+    working: "Procesando",
+    workspace: "Espacio de trabajo",
+    chat: "Chat",
+    resumeWake: "Reanudar / Activar",
+    promptPlaceholder: "Pídele a OpenClaw que haga algo útil.",
+    disconnected: "Desconectado",
+    connecting: "Conectando",
+    authorizing: "Autorizando",
+    connected: "Conectado",
+    send: "Enviar",
+    signedInSummary: "Sesión iniciada como {email}. Crea tu espacio dedicado de OpenClaw.",
+    tenantMeta: "{email} · {status} · {verification}",
+    status_running: "activo",
+    status_paused: "pausado",
+    status_stopped: "detenido",
+    status_error: "error",
+    status_provisioning: "provisionando",
+    verification_verified: "verificado",
+    verification_pending: "pendiente",
+    verification_failed: "fallido",
+    authFailed: "Error de autenticación: {message}",
+    provisioningActivity: "Provisionando tu espacio. Esto puede tardar uno o dos minutos.",
+    workspaceReady: "Espacio listo.",
+    workspaceResumed: "Espacio reanudado.",
+    provisioningFailed: "Falló el provisionamiento: {message}",
+    wakingWorkspace: "Activando tu espacio.",
+    workspaceConnected: "Espacio conectado.",
+    resumeFailed: "Falló la reanudación: {message}",
+    running: "Ejecutando...",
+    sendFailed: "Falló el envío: {message}",
+    timedOutWaiting: "Tiempo de espera agotado para {method}",
+    websocketNotConnected: "WebSocket no conectado",
+    gatewayError: "Error del gateway",
+  },
+};
+
+function resolveLocale() {
+  const query = new URLSearchParams(window.location.search).get("lang");
+  if (query) {
+    const normalized = query.toLowerCase();
+    if (normalized.startsWith("es")) return "es";
+    if (normalized.startsWith("en")) return "en";
+  }
+  const raw = (navigator.language || "en").toLowerCase();
+  if (raw.startsWith("es")) return "es";
+  return "en";
+}
+
+function t(key, vars = {}) {
+  const strings = STRINGS[state.locale] || STRINGS.en;
+  const template = strings[key] || STRINGS.en[key] || key;
+  return template.replace(/\{(\w+)\}/g, (_, name) => `${vars[name] ?? ""}`);
+}
+
+function applyLocale() {
+  state.locale = resolveLocale();
+  document.documentElement.lang = state.locale;
+  document.title = t("appTitle");
+  el.heroEyebrow.textContent = t("heroEyebrow");
+  el.heroTitle.textContent = t("heroTitle");
+  el.summary.textContent = t("checkingWorkspace");
+  el.deployButton.textContent = t("deployWorkspace");
+  el.activityLabel.textContent = t("working");
+  el.workspaceEyebrow.textContent = t("workspace");
+  el.tenantName.textContent = t("chat");
+  el.resumeButton.textContent = t("resumeWake");
+  el.prompt.placeholder = t("promptPlaceholder");
+  el.connection.textContent = t("disconnected");
+  el.sendButton.textContent = t("send");
+}
+
+function localizeTenantState(value, prefix) {
+  const key = `${prefix}_${String(value || "").toLowerCase()}`;
+  return STRINGS[state.locale][key] || STRINGS.en[key] || value;
+}
 
 function toSameOriginPath(path) {
   if (typeof path !== "string" || !path.startsWith("/")) {
@@ -49,13 +176,15 @@ async function fetchJson(path, init) {
 }
 
 function setStatus(message) {
+  const visible = Boolean(message);
+  el.status.hidden = !visible;
   el.status.textContent = message;
 }
 
 function setActivity(message = "") {
   const active = Boolean(message);
   el.activity.hidden = !active;
-  el.activityLabel.textContent = message;
+  el.activityLabel.textContent = message || t("working");
   el.deployButton.disabled = active;
   el.resumeButton.disabled = active;
 }
@@ -94,7 +223,7 @@ function nextRequestId() {
 
 function sendRpc(method, params = {}) {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
-    throw new Error("WebSocket not connected");
+    throw new Error(t("websocketNotConnected"));
   }
   const id = nextRequestId();
   const payload = { type: "req", id, method, params };
@@ -104,7 +233,7 @@ function sendRpc(method, params = {}) {
     window.setTimeout(() => {
       if (state.pending.has(id)) {
         state.pending.delete(id);
-        reject(new Error(`Timed out waiting for ${method}`));
+        reject(new Error(t("timedOutWaiting", { method })));
       }
     }, 15000);
   });
@@ -123,7 +252,7 @@ async function connectChat() {
   const url = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/t/${state.session.tenant.slug}/ws`;
   const socket = new WebSocket(url);
   state.socket = socket;
-  el.connection.textContent = "Connecting";
+  el.connection.textContent = t("connecting");
   let connectSent = false;
 
   const sendConnect = () => {
@@ -152,7 +281,7 @@ async function connectChat() {
   };
 
   socket.addEventListener("open", () => {
-    el.connection.textContent = "Authorizing";
+    el.connection.textContent = t("authorizing");
     window.setTimeout(sendConnect, 700);
   });
 
@@ -167,10 +296,10 @@ async function connectChat() {
       if (pending) {
         state.pending.delete(frame.id);
         if (frame.ok) pending.resolve(frame.payload || {});
-        else pending.reject(new Error(frame.error?.message || "Gateway error"));
+        else pending.reject(new Error(frame.error?.message || t("gatewayError")));
       }
       if (frame.ok && frame.payload?.type === "hello-ok") {
-        el.connection.textContent = "Connected";
+        el.connection.textContent = t("connected");
         await loadHistory();
       }
       return;
@@ -181,7 +310,7 @@ async function connectChat() {
   });
 
   socket.addEventListener("close", () => {
-    el.connection.textContent = "Disconnected";
+    el.connection.textContent = t("disconnected");
     state.socket = null;
   });
 }
@@ -190,12 +319,12 @@ async function bootstrap() {
   try {
     state.session = await fetchJson("/api/v1/app/session");
   } catch (error) {
-    setStatus(`Authentication failed: ${error.message}`);
+    setStatus(t("authFailed", { message: error.message }));
     return;
   }
 
   if (!state.session.tenant) {
-    el.summary.textContent = `Signed in as ${state.session.email}. Create your dedicated OpenClaw workspace.`;
+    el.summary.textContent = t("signedInSummary", { email: state.session.email });
     el.deployButton.hidden = false;
     setActivity("");
     return;
@@ -204,37 +333,41 @@ async function bootstrap() {
   el.landing.hidden = true;
   el.chatShell.hidden = false;
   el.tenantName.textContent = state.session.tenant.slug;
-  el.tenantMeta.textContent = `${state.session.email} · ${state.session.tenant.status} · ${state.session.tenant.verification_status}`;
+  el.tenantMeta.textContent = t("tenantMeta", {
+    email: state.session.email,
+    status: localizeTenantState(state.session.tenant.status, "status"),
+    verification: localizeTenantState(state.session.tenant.verification_status, "verification"),
+  });
   setActivity("");
   await connectChat();
 }
 
 el.deployButton.addEventListener("click", async () => {
-  setActivity("Provisioning your workspace. This can take a minute or two.");
-  setStatus("Provisioning your workspace. This can take a minute or two.");
+  setActivity(t("provisioningActivity"));
+  setStatus("");
   try {
     const response = await fetchJson("/api/v1/app/deploy-or-resume", { method: "POST", body: "{}" });
     state.session = { ...state.session, tenant: response.tenant };
     await bootstrap();
-    setStatus(response.created ? "Workspace ready." : "Workspace resumed.");
+    setStatus(response.created ? t("workspaceReady") : t("workspaceResumed"));
   } catch (error) {
-    setStatus(`Provisioning failed: ${error.message}`);
+    setStatus(t("provisioningFailed", { message: error.message }));
   } finally {
     setActivity("");
   }
 });
 
 el.resumeButton.addEventListener("click", async () => {
-  setActivity("Waking your workspace.");
-  setStatus("Resuming workspace.");
+  setActivity(t("wakingWorkspace"));
+  setStatus("");
   try {
     const response = await fetchJson("/api/v1/app/deploy-or-resume", { method: "POST", body: "{}" });
     state.session = { ...state.session, tenant: response.tenant };
     await connectChat();
     await loadHistory();
-    setStatus("Workspace connected.");
+    setStatus(t("workspaceConnected"));
   } catch (error) {
-    setStatus(`Resume failed: ${error.message}`);
+    setStatus(t("resumeFailed", { message: error.message }));
   } finally {
     setActivity("");
   }
@@ -246,7 +379,7 @@ el.composer.addEventListener("submit", async (event) => {
   if (!message) return;
   el.prompt.value = "";
   addMessage("user", message);
-  addMessage("system", "Running...");
+  addMessage("system", t("running"));
   try {
     await sendRpc("chat.send", {
       sessionKey: state.sessionKey,
@@ -255,8 +388,9 @@ el.composer.addEventListener("submit", async (event) => {
       idempotencyKey: nextRequestId(),
     });
   } catch (error) {
-    addMessage("system", `Send failed: ${error.message}`);
+    addMessage("system", t("sendFailed", { message: error.message }));
   }
 });
 
+applyLocale();
 bootstrap();

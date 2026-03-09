@@ -48,6 +48,9 @@ body {
 .lede, .muted, .status {
   color: var(--muted);
 }
+.status[hidden] {
+  display: none;
+}
 .button {
   border: 0;
   border-radius: 999px;
