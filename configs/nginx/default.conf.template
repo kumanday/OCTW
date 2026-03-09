@@ -32,8 +32,8 @@ server {
 
     location /oauth2/ {
         proxy_pass http://octw-oidc:4180;
-        proxy_set_header X-Auth-Request-Redirect $scheme://$host$request_uri;
         proxy_set_header X-Forwarded-Uri $request_uri;
+        proxy_set_header X-Scheme https;
     }
 
     location = /oauth2/auth {
@@ -47,7 +47,7 @@ server {
     error_page 401 = @oauth2_signin;
 
     location @oauth2_signin {
-        return 302 /oauth2/start?rd=$scheme://$host$request_uri;
+        return 302 /oauth2/start?rd=$scheme://$host$escaped_request_uri;
     }
 
     location = /health {
