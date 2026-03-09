@@ -137,10 +137,24 @@ function resolveLocale() {
   return "en";
 }
 
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function getString(strings, key) {
+  if (typeof key !== "string") return "";
+  if (hasOwn(strings, key)) return strings[key];
+  if (hasOwn(STRINGS.en, key)) return STRINGS.en[key];
+  return key;
+}
+
 function t(key, vars = {}) {
   const strings = STRINGS[state.locale] || STRINGS.en;
-  const template = strings[key] || STRINGS.en[key] || key;
-  return template.replace(/\{(\w+)\}/g, (_, name) => `${vars[name] ?? ""}`);
+  const template = getString(strings, key);
+  return template.replace(/\{(\w+)\}/g, (_, name) => {
+    if (!hasOwn(vars, name)) return "";
+    return `${vars[name] ?? ""}`;
+  });
 }
 
 function applyLocale() {
@@ -164,7 +178,8 @@ function applyLocale() {
 
 function localizeTenantState(value, prefix) {
   const key = `${prefix}_${String(value || "").toLowerCase()}`;
-  return STRINGS[state.locale][key] || STRINGS.en[key] || value;
+  const localized = getString(STRINGS[state.locale] || STRINGS.en, key);
+  return localized === key ? value : localized;
 }
 
 function toSameOriginPath(path) {
