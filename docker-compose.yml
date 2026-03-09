@@ -114,15 +114,15 @@ services:
     environment:
       OCTW_SERVER_NAME: "${OCTW_SERVER_NAME:-octw.example.com}"
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:8080"
+      - "443:8443"
     depends_on:
       - octw-api
       - octw-edge
       - octw-oidc
     volumes:
       - ./configs/nginx:/etc/nginx/templates:ro
-      - ./configs/certs:/etc/nginx/certs
+      - ./configs/certs:/etc/nginx/certs:ro
     networks:
       - octw_control
 

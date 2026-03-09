@@ -102,7 +102,7 @@ This starts six services:
 | `octw-db` | `5432` | PostgreSQL metadata store |
 | `octw-cache` | `6379` | Redis sessions and locks |
 
-If `configs/certs/fullchain.pem` and `configs/certs/privkey.pem` do not exist, `octw-proxy` generates a self-signed certificate on first boot. Replace those files with a real certificate for production.
+If `configs/certs/fullchain.pem` and `configs/certs/privkey.pem` do not exist, `octw-proxy` generates an ephemeral self-signed certificate inside the container for bootstrap only. Mount real cert files in `configs/certs/` for production.
 
 ### 5. Open the browser app
 

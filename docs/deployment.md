@@ -81,7 +81,7 @@ If you need Google Group enforcement:
 docker compose up -d --build
 ```
 
-`octw-proxy` will generate a self-signed certificate if `configs/certs/fullchain.pem` and `configs/certs/privkey.pem` are missing.
+`octw-proxy` will generate an ephemeral self-signed certificate inside the container if `configs/certs/fullchain.pem` and `configs/certs/privkey.pem` are missing.
 
 ## Verification
 
@@ -141,7 +141,7 @@ sudo rm -rf /var/lib/octw/tenants/*
 
 ## Production Notes
 
-- Replace the generated certificate under `configs/certs/` with a real certificate before exposing the stack broadly.
+- Mount a real certificate at `configs/certs/fullchain.pem` and `configs/certs/privkey.pem` before exposing the stack broadly.
 - Keep `octw-api` and `octw-edge` bound to localhost. The public entrypoint should stay `octw-proxy` only.
 - The default Postgres and Redis containers are adequate for development and small-scale testing. For production, move them to managed services and update `OCTW_DB_URL` and `OCTW_REDIS_URL`.
 - Pin `OCTW_OPENCLAW_DIGEST` if you need deterministic tenant image rollouts.
