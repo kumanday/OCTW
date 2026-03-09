@@ -18,7 +18,9 @@ class TestProviderRegistry:
         assert spec.model_id == "zai/glm-5"
         assert spec.provider_name == "zai"
         assert spec.model_name == "glm-5"
-        assert spec.builtin is True
+        assert spec.base_url == "https://api.z.ai/api/coding/paas/v4"
+        assert spec.api_type == "openai-completions"
+        assert spec.builtin is False
 
     def test_get_provider_moonshot(self):
         spec = get_provider("moonshot")

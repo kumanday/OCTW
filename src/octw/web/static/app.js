@@ -64,6 +64,7 @@ const STRINGS = {
     workspaceConnected: "Workspace connected.",
     resumeFailed: "Resume failed: {message}",
     running: "Running...",
+    assistantError: "Agent failed: {message}",
     sendFailed: "Send failed: {message}",
     timedOutWaiting: "Timed out waiting for {method}",
     websocketNotConnected: "WebSocket not connected",
@@ -104,6 +105,7 @@ const STRINGS = {
     workspaceConnected: "Espacio conectado.",
     resumeFailed: "Falló la reanudación: {message}",
     running: "Ejecutando...",
+    assistantError: "El agente falló: {message}",
     sendFailed: "Falló el envío: {message}",
     timedOutWaiting: "Tiempo de espera agotado para {method}",
     websocketNotConnected: "WebSocket no conectado",
@@ -199,6 +201,9 @@ function addMessage(role, text) {
 
 function normalizeText(entry) {
   if (!entry || typeof entry !== "object") return "";
+  if (typeof entry.errorMessage === "string" && entry.errorMessage) {
+    return t("assistantError", { message: entry.errorMessage });
+  }
   if (typeof entry.text === "string") return entry.text;
   if (Array.isArray(entry.content)) {
     return entry.content

@@ -349,6 +349,8 @@ class DockerOrchestrator:
         config["gateway"]["controlUi"] = control_ui
 
         if spec:
+            config["env"] = config.get("env", {})
+            config["env"][spec.env_var] = f"${{{spec.env_var}}}"
             config["agents"] = config.get("agents", {})
             config["agents"]["defaults"] = config["agents"].get("defaults", {})
             config["agents"]["defaults"]["model"] = {"primary": spec.model_id}

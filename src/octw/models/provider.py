@@ -31,9 +31,9 @@ PROVIDERS: dict[ProviderKey, ProviderSpec] = {
         model_id="zai/glm-5",
         model_name="glm-5",
         display_name="Z.ai GLM Coding Plan",
-        base_url=None,
-        api_type=None,
-        builtin=True,
+        base_url="https://api.z.ai/api/coding/paas/v4",
+        api_type="openai-completions",
+        builtin=False,
     ),
     ProviderKey.MOONSHOT: ProviderSpec(
         key=ProviderKey.MOONSHOT,
