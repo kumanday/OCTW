@@ -6,12 +6,12 @@ OCTW runs one OpenClaw gateway container per tenant and keeps all tenant gateway
 
 ```mermaid
 flowchart LR
-  browser["Browser"] --> proxy["octw-proxy\nNginx HTTPS ingress"]
-  proxy --> oidc["octw-oidc\noauth2-proxy"]
-  proxy --> api["octw-api\nFastAPI"]
-  proxy --> edge["octw-edge\nHTTP + WS proxy"]
-  api --> db["octw-db\nPostgreSQL"]
-  api --> cache["octw-cache\nRedis"]
+  browser["Browser"] --> proxy["octw-proxy<br>Nginx HTTPS ingress"]
+  proxy --> oidc["octw-oidc<br>oauth2-proxy"]
+  proxy --> api["octw-api<br>FastAPI"]
+  proxy --> edge["octw-edge<br>HTTP + WS proxy"]
+  api --> db["octw-db<br>PostgreSQL"]
+  api --> cache["octw-cache<br>Redis"]
   api --> docker["Docker API"]
   edge --> tenant1["Tenant gateway A"]
   edge --> tenant2["Tenant gateway B"]
