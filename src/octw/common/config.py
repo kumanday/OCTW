@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class OCTWSettings(BaseSettings):
@@ -44,7 +46,7 @@ class OCTWSettings(BaseSettings):
     # Browser auth via reverse proxy.
     trusted_proxy_enabled: bool = False
     trusted_proxy_user_header: str = "X-Forwarded-Email"
-    trusted_proxy_ips: list[str] = Field(default_factory=list)
+    trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     # WebChat is enabled by default during onboarding.
     webchat_port: int = 18790

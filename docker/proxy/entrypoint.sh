@@ -8,9 +8,9 @@ GENERATED_CERT_DIR=/tmp/nginx-certs
 GENERATED_CERT_FILE="$GENERATED_CERT_DIR/fullchain.pem"
 GENERATED_KEY_FILE="$GENERATED_CERT_DIR/privkey.pem"
 
-if [ ! -s "$CERT_FILE" ] || [ ! -s "$KEY_FILE" ]; then
+if [ ! -r "$CERT_FILE" ] || [ ! -r "$KEY_FILE" ]; then
   SERVER_NAME="${OCTW_SERVER_NAME:-localhost}"
-  echo "Generating self-signed TLS certificate for ${SERVER_NAME}" >&2
+  echo "Using ephemeral self-signed TLS certificate for ${SERVER_NAME}" >&2
   mkdir -p "$GENERATED_CERT_DIR"
   openssl req -x509 -nodes -newkey rsa:2048 \
     -keyout "$GENERATED_KEY_FILE" \
