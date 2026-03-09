@@ -30,7 +30,7 @@ server {
     proxy_set_header X-Forwarded-Host $host;
     proxy_set_header X-Forwarded-Port 443;
 
-    location /oauth2/ {
+    location ^~ /oauth2/ {
         proxy_pass http://octw-oidc:4180;
         proxy_set_header X-Forwarded-Uri $request_uri;
         proxy_set_header X-Scheme https;
