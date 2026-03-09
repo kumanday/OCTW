@@ -8,10 +8,10 @@ import time
 import uuid
 from pathlib import Path
 
-import docker
 from docker.errors import NotFound
 from docker.types import Mount
 
+import docker
 from octw.common.config import settings
 from octw.common.logging import get_logger
 from octw.models.tenant import ContainerState, IsolationMode, Tenant
@@ -46,14 +46,6 @@ WS_PROBE_SCRIPT = textwrap.dedent(
             close_timeout=5,
             max_size=1_000_000,
         ) as ws:
-            challenge = None
-            try:
-                first = json.loads(await asyncio.wait_for(ws.recv(), timeout=0.75))
-            except asyncio.TimeoutError:
-                first = None
-            if first and first.get("type") == "event" and first.get("event") == "connect.challenge":
-                payload = first.get("payload") or {}
-                challenge = payload.get("nonce")
             req = {
                 "type": "req",
                 "id": "octw-probe",
@@ -62,26 +54,28 @@ WS_PROBE_SCRIPT = textwrap.dedent(
                     "minProtocol": 3,
                     "maxProtocol": 3,
                     "client": {
-                        "id": "control-ui",
-                        "version": "octw-probe",
+                        "id": "openclaw-control-ui",
+                        "version": "control-ui",
                         "platform": "linux",
                         "mode": "webchat",
                     },
                     "role": "operator",
-                    "scopes": ["operator.read", "operator.write", "operator.admin"],
-                    "caps": [],
-                    "commands": [],
-                    "permissions": {},
+                    "scopes": ["operator.admin", "operator.approvals", "operator.pairing"],
+                    "caps": ["tool-events"],
                     "locale": "en-US",
                     "userAgent": "octw-probe",
                 },
             }
-            if challenge:
-                req["params"]["challengeNonce"] = challenge
             await ws.send(json.dumps(req))
-            response = json.loads(await ws.recv())
-            if response.get("type") != "res" or not response.get("ok"):
-                raise RuntimeError(json.dumps(response))
+            while True:
+                response = json.loads(await ws.recv())
+                if response.get("type") == "event":
+                    continue
+                if response.get("type") != "res" or response.get("id") != "octw-probe":
+                    continue
+                if not response.get("ok"):
+                    raise RuntimeError(json.dumps(response))
+                break
             payload = response.get("payload") or {}
             if payload.get("type") != "hello-ok":
                 raise RuntimeError(json.dumps(response))

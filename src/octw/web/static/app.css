@@ -61,6 +61,32 @@ body {
   background: linear-gradient(135deg, var(--accent), #05504c);
   color: #fff;
 }
+.button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+.activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 12px 16px;
+  border-radius: 999px;
+  background: rgba(11, 122, 117, 0.08);
+  color: var(--accent);
+  border: 1px solid rgba(11, 122, 117, 0.16);
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(11, 122, 117, 0.2);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+.activity[hidden] {
+  display: none;
+}
 .chat-shell {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -114,6 +140,9 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 @media (max-width: 900px) {
   .hero { padding: 28px; }

@@ -13,6 +13,10 @@
         <h1>Deploy once. Resume straight into chat.</h1>
         <p class="lede" id="summary">Checking your workspace.</p>
         <button id="deploy-button" class="button primary" hidden>Deploy Workspace</button>
+        <div id="activity" class="activity" hidden aria-live="polite" aria-busy="true">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="activity-label">Working</span>
+        </div>
         <p id="status" class="status"></p>
       </section>
 

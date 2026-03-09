@@ -11,6 +11,8 @@ const el = {
   summary: document.getElementById("summary"),
   status: document.getElementById("status"),
   deployButton: document.getElementById("deploy-button"),
+  activity: document.getElementById("activity"),
+  activityLabel: document.getElementById("activity-label"),
   chatShell: document.getElementById("chat-shell"),
   messages: document.getElementById("messages"),
   prompt: document.getElementById("prompt"),
@@ -48,6 +50,14 @@ async function fetchJson(path, init) {
 
 function setStatus(message) {
   el.status.textContent = message;
+}
+
+function setActivity(message = "") {
+  const active = Boolean(message);
+  el.activity.hidden = !active;
+  el.activityLabel.textContent = message;
+  el.deployButton.disabled = active;
+  el.resumeButton.disabled = active;
 }
 
 function addMessage(role, text) {
@@ -126,12 +136,15 @@ async function connectChat() {
       params: {
         minProtocol: 3,
         maxProtocol: 3,
-        client: { id: "control-ui", version: "octw-web", platform: "web", mode: "webchat" },
+        client: {
+          id: "openclaw-control-ui",
+          version: "control-ui",
+          platform: navigator.platform || "web",
+          mode: "webchat",
+        },
         role: "operator",
-        scopes: ["operator.read", "operator.write", "operator.admin"],
-        caps: [],
-        commands: [],
-        permissions: {},
+        scopes: ["operator.admin", "operator.approvals", "operator.pairing"],
+        caps: ["tool-events"],
         locale: navigator.language,
         userAgent: navigator.userAgent,
       },
@@ -184,6 +197,7 @@ async function bootstrap() {
   if (!state.session.tenant) {
     el.summary.textContent = `Signed in as ${state.session.email}. Create your dedicated OpenClaw workspace.`;
     el.deployButton.hidden = false;
+    setActivity("");
     return;
   }
 
@@ -191,11 +205,12 @@ async function bootstrap() {
   el.chatShell.hidden = false;
   el.tenantName.textContent = state.session.tenant.slug;
   el.tenantMeta.textContent = `${state.session.email} · ${state.session.tenant.status} · ${state.session.tenant.verification_status}`;
+  setActivity("");
   await connectChat();
 }
 
 el.deployButton.addEventListener("click", async () => {
-  el.deployButton.disabled = true;
+  setActivity("Provisioning your workspace. This can take a minute or two.");
   setStatus("Provisioning your workspace. This can take a minute or two.");
   try {
     const response = await fetchJson("/api/v1/app/deploy-or-resume", { method: "POST", body: "{}" });
@@ -205,11 +220,12 @@ el.deployButton.addEventListener("click", async () => {
   } catch (error) {
     setStatus(`Provisioning failed: ${error.message}`);
   } finally {
-    el.deployButton.disabled = false;
+    setActivity("");
   }
 });
 
 el.resumeButton.addEventListener("click", async () => {
+  setActivity("Waking your workspace.");
   setStatus("Resuming workspace.");
   try {
     const response = await fetchJson("/api/v1/app/deploy-or-resume", { method: "POST", body: "{}" });
@@ -219,6 +235,8 @@ el.resumeButton.addEventListener("click", async () => {
     setStatus("Workspace connected.");
   } catch (error) {
     setStatus(`Resume failed: ${error.message}`);
+  } finally {
+    setActivity("");
   }
 });
 

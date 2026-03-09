@@ -69,6 +69,8 @@ server {
         auth_request /oauth2/auth;
         auth_request_set $user_email $upstream_http_x_auth_request_email;
         proxy_set_header X-Forwarded-Email $user_email;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
         proxy_pass http://octw-api:8000;
     }
 
