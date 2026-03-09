@@ -22,8 +22,19 @@ const el = {
   tenantMeta: document.getElementById("tenant-meta"),
 };
 
-async function fetchJson(url, init) {
-  const response = await fetch(url, {
+function toSameOriginPath(path) {
+  if (typeof path !== "string" || !path.startsWith("/")) {
+    throw new Error("Expected a same-origin absolute path");
+  }
+  const url = new URL(path, window.location.origin);
+  if (url.origin !== window.location.origin) {
+    throw new Error("Cross-origin requests are not allowed");
+  }
+  return `${url.pathname}${url.search}`;
+}
+
+async function fetchJson(path, init) {
+  const response = await fetch(toSameOriginPath(path), {
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     ...init,
