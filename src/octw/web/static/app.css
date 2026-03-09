@@ -92,11 +92,25 @@ body {
 }
 .chat-shell {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: minmax(320px, 360px) 1fr;
   gap: 18px;
 }
 .sidebar, .chat-panel {
   padding: 24px;
+}
+.sidebar h2 {
+  margin: 0 0 10px;
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+#tenant-meta {
+  margin-top: 0;
+  font-size: 0.98rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .messages {
   height: min(65vh, 720px);

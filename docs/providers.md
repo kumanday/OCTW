@@ -6,7 +6,7 @@ OCTW supports multiple LLM providers. Provider API keys are configured once on t
 
 | Key | Display Name | Model ID | Env Var |
 |---|---|---|---|
-| `zai` | Z.ai GLM Coding Plan | `zai-coding/glm-5` | `OCTW_ZAI_API_KEY` |
+| `zai` | Z.ai GLM Coding Plan | `zai/glm-5` | `OCTW_ZAI_API_KEY` |
 | `moonshot` | Moonshot AI Kimi Coding Plan | `kimi-coding/k2p5` | `OCTW_MOONSHOT_API_KEY` |
 | `minimax` | MiniMax Coding Plan | `minimax-coding/MiniMax-M2.5` | `OCTW_MINIMAX_API_KEY` |
 
@@ -34,7 +34,7 @@ Response:
   {
     "key": "zai",
     "display_name": "Z.ai GLM Coding Plan",
-    "model": "zai-coding/glm-5",
+    "model": "zai/glm-5",
     "configured": true
   },
   {

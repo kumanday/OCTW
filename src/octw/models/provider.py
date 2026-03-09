@@ -27,8 +27,8 @@ PROVIDERS: dict[ProviderKey, ProviderSpec] = {
     ProviderKey.ZAI: ProviderSpec(
         key=ProviderKey.ZAI,
         env_var="ZAI_API_KEY",
-        provider_name="zai-coding",
-        model_id="zai-coding/glm-5",
+        provider_name="zai",
+        model_id="zai/glm-5",
         model_name="glm-5",
         display_name="Z.ai GLM Coding Plan",
         base_url=None,

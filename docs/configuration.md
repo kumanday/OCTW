@@ -32,7 +32,7 @@ At least one provider key must be present for one-click provisioning.
 
 | Variable | Provider | Model |
 |---|---|---|
-| `OCTW_ZAI_API_KEY` | Z.ai | `zai-coding/glm-5` |
+| `OCTW_ZAI_API_KEY` | Z.ai | `zai/glm-5` |
 | `OCTW_MOONSHOT_API_KEY` | Moonshot AI | `kimi-coding/k2p5` |
 | `OCTW_MINIMAX_API_KEY` | MiniMax | `minimax-coding/MiniMax-M2.5` |
 | `OCTW_DEFAULT_PROVIDER` | `zai` | Provider key used by `/api/v1/app/deploy-or-resume` |

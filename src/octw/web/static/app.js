@@ -46,7 +46,7 @@ const STRINGS = {
     connected: "Connected",
     send: "Send",
     signedInSummary: "Signed in as {email}. Create your dedicated OpenClaw workspace.",
-    tenantMeta: "{email} · {status} · {verification}",
+    tenantMeta: "{status} · {verification}",
     status_running: "running",
     status_paused: "paused",
     status_stopped: "stopped",
@@ -86,7 +86,7 @@ const STRINGS = {
     connected: "Conectado",
     send: "Enviar",
     signedInSummary: "Sesión iniciada como {email}. Crea tu espacio dedicado de OpenClaw.",
-    tenantMeta: "{email} · {status} · {verification}",
+    tenantMeta: "{status} · {verification}",
     status_running: "activo",
     status_paused: "pausado",
     status_stopped: "detenido",
@@ -332,9 +332,8 @@ async function bootstrap() {
 
   el.landing.hidden = true;
   el.chatShell.hidden = false;
-  el.tenantName.textContent = state.session.tenant.slug;
+  el.tenantName.textContent = state.session.email;
   el.tenantMeta.textContent = t("tenantMeta", {
-    email: state.session.email,
     status: localizeTenantState(state.session.tenant.status, "status"),
     verification: localizeTenantState(state.session.tenant.verification_status, "verification"),
   });

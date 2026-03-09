@@ -15,8 +15,8 @@ class TestProviderRegistry:
     def test_get_provider_by_key(self):
         spec = get_provider("zai")
         assert spec.env_var == "ZAI_API_KEY"
-        assert spec.model_id == "zai-coding/glm-5"
-        assert spec.provider_name == "zai-coding"
+        assert spec.model_id == "zai/glm-5"
+        assert spec.provider_name == "zai"
         assert spec.model_name == "glm-5"
         assert spec.builtin is True
 

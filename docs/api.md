@@ -144,7 +144,7 @@ Response:
   "slug": "acme",
   "status": "running",
   "provider": "zai",
-  "model": "zai-coding/glm-5",
+  "model": "zai/glm-5",
   "url": "https://octw.example.com/acme/",
   "verification_status": "verified",
   "verification_error": null
