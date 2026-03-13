@@ -6,7 +6,7 @@ OCTW supports multiple LLM providers. Provider API keys are configured once on t
 
 | Key | Display Name | Model ID | Env Var |
 |---|---|---|---|
-| `zai` | Z.ai GLM Coding Plan | `zai-coding/glm-5` | `OCTW_ZAI_API_KEY` |
+| `zai` | Z.ai GLM Coding Plan | `zai/glm-5` | `OCTW_ZAI_API_KEY` |
 | `moonshot` | Moonshot AI Kimi Coding Plan | `kimi-coding/k2p5` | `OCTW_MOONSHOT_API_KEY` |
 | `minimax` | MiniMax Coding Plan | `minimax-coding/MiniMax-M2.5` | `OCTW_MINIMAX_API_KEY` |
 
@@ -34,7 +34,7 @@ Response:
   {
     "key": "zai",
     "display_name": "Z.ai GLM Coding Plan",
-    "model": "zai-coding/glm-5",
+    "model": "zai/glm-5",
     "configured": true
   },
   {
@@ -57,7 +57,7 @@ Response:
 When a tenant is provisioned with a provider:
 
 1. **Init job** — the provider's API key is injected as an env var (e.g. `ZAI_API_KEY`) and `OPENCLAW_DEFAULT_MODEL` is set to the model ID.
-2. **OpenClaw config** — `openclaw.json` is patched to set `models.default` to the model ID and configure the provider with a SecretRef (`{"$ref": "env:ZAI_API_KEY"}`), avoiding plaintext keys in config files.
+2. **OpenClaw config** — `openclaw.json` is patched to set `env.ZAI_API_KEY` to `"${ZAI_API_KEY}"`, set the default model to the chosen model ID, and register the Z.ai provider against `https://api.z.ai/api/coding/paas/v4` using the OpenAI-compatible completions API.
 3. **Runtime** — the container is started with the provider's API key injected as an env var. This happens on every start, including wake-on-request after hibernation.
 
 The provider choice is stored on the tenant row, so it persists across restarts.

@@ -30,6 +30,7 @@ services:
       - octw_control
 
   octw-api:
+    container_name: octw-api
     build:
       context: .
       dockerfile: Dockerfile
@@ -38,7 +39,7 @@ services:
     # The edge proxy runs as non-root (UID 1000).
     user: "0:0"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       OCTW_DB_URL: "postgresql+asyncpg://octw:octw@octw-db:5432/octw"
       OCTW_REDIS_URL: "redis://octw-cache:6379/0"
@@ -47,6 +48,10 @@ services:
       OCTW_ZAI_API_KEY: "${OCTW_ZAI_API_KEY:-}"
       OCTW_MOONSHOT_API_KEY: "${OCTW_MOONSHOT_API_KEY:-}"
       OCTW_MINIMAX_API_KEY: "${OCTW_MINIMAX_API_KEY:-}"
+      OCTW_PUBLIC_BASE_URL: "${OCTW_PUBLIC_BASE_URL:-https://octw.example.com}"
+      OCTW_TRUSTED_PROXY_ENABLED: "${OCTW_TRUSTED_PROXY_ENABLED:-false}"
+      OCTW_TRUSTED_PROXY_USER_HEADER: "${OCTW_TRUSTED_PROXY_USER_HEADER:-X-Forwarded-Email}"
+      OCTW_TRUSTED_PROXY_IPS: "${OCTW_TRUSTED_PROXY_IPS:-172.30.0.0/24}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/octw:/var/lib/octw
@@ -59,19 +64,65 @@ services:
       - octw_control
 
   octw-edge:
+    container_name: octw-edge
     build:
       context: .
       dockerfile: Dockerfile
     command: ["uvicorn", "octw.edge.proxy:edge_app", "--host", "0.0.0.0", "--port", "8443"]
     ports:
-      - "8443:8443"
+      - "127.0.0.1:8443:8443"
     environment:
       OCTW_DB_URL: "postgresql+asyncpg://octw:octw@octw-db:5432/octw"
       OCTW_REDIS_URL: "redis://octw-cache:6379/0"
       OCTW_JWT_SECRET: "${OCTW_JWT_SECRET:-change-me-in-production}"
       OCTW_EDGE_DOMAIN: "${OCTW_EDGE_DOMAIN:-octw.example.com}"
+      OCTW_API_INTERNAL_BASE_URL: "${OCTW_API_INTERNAL_BASE_URL:-http://octw-api:8000}"
+      OCTW_PUBLIC_BASE_URL: "${OCTW_PUBLIC_BASE_URL:-https://octw.example.com}"
     depends_on:
       - octw-api
+    networks:
+      - octw_control
+
+  octw-oidc:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.14.3
+    container_name: octw-oidc
+    command:
+      - --config=/etc/oauth2-proxy/${OCTW_OIDC_CONFIG_FILE:-oauth2-proxy.cfg}
+    environment:
+      OAUTH2_PROXY_PROVIDER: "${OCTW_OIDC_PROVIDER:-oidc}"
+      OAUTH2_PROXY_OIDC_ISSUER_URL: "${OCTW_OIDC_ISSUER_URL:-}"
+      OAUTH2_PROXY_REDIRECT_URL: "${OCTW_PUBLIC_BASE_URL:-https://octw.example.com}/oauth2/callback"
+      OAUTH2_PROXY_CLIENT_ID: "${OCTW_OIDC_CLIENT_ID}"
+      OAUTH2_PROXY_CLIENT_SECRET: "${OCTW_OIDC_CLIENT_SECRET}"
+      OAUTH2_PROXY_COOKIE_SECRET: "${OCTW_OIDC_COOKIE_SECRET}"
+      OAUTH2_PROXY_EMAIL_DOMAINS: "${OCTW_OIDC_EMAIL_DOMAINS:-*}"
+      OAUTH2_PROXY_WHITELIST_DOMAINS: "${OCTW_OIDC_WHITELIST_DOMAINS:-}"
+    depends_on:
+      octw-cache:
+        condition: service_healthy
+    volumes:
+      - ./configs/oauth2-proxy:/etc/oauth2-proxy:ro
+      - ./configs/oauth2-proxy/credentials:/var/run/oauth2-proxy:ro
+    networks:
+      - octw_control
+
+  octw-proxy:
+    container_name: octw-proxy
+    build:
+      context: .
+      dockerfile: docker/proxy/Dockerfile
+    environment:
+      OCTW_SERVER_NAME: "${OCTW_SERVER_NAME:-octw.example.com}"
+    ports:
+      - "80:8080"
+      - "443:8443"
+    depends_on:
+      - octw-api
+      - octw-edge
+      - octw-oidc
+    volumes:
+      - ./configs/nginx:/etc/nginx/templates:ro
+      - ./configs/certs:/etc/nginx/certs:ro
     networks:
       - octw_control
 
@@ -81,3 +132,6 @@ volumes:
 networks:
   octw_control:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

@@ -19,7 +19,6 @@ async def _resolve_tenant_id(
     session: AsyncSession,
     svc: TenantService,
 ) -> uuid.UUID:
-    """Resolve a tenant identifier that may be a UUID or a slug."""
     try:
         return uuid.UUID(identifier)
     except ValueError:
@@ -40,6 +39,20 @@ async def ensure_running(
     container_id = await svc.wake_tenant(session, tenant_id)
     await session.commit()
     return {"status": "running", "containerId": container_id}
+
+
+@router.get("/{identifier}/access/{user_id}")
+async def check_access(
+    identifier: str,
+    user_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    svc: TenantService = Depends(get_tenant_service),
+):
+    tenant_id = await _resolve_tenant_id(identifier, session, svc)
+    role = await svc.check_membership(session, tenant_id, user_id)
+    if role is None:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return {"allowed": True, "role": role.value, "tenant_id": str(tenant_id)}
 
 
 @router.post("/{identifier}/pause-if-idle")

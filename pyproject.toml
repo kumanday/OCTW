@@ -17,6 +17,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10.0",
     "cryptography>=44.0.0",
     "httpx>=0.28.0",
+    "websockets>=16.0",
     "python-multipart>=0.0.18",
     "structlog>=24.4.0",
     "prometheus-client>=0.21.0",

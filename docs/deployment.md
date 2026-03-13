@@ -1,145 +1,147 @@
 # Deployment
 
-## Docker Compose (Recommended)
+## Compose Topology
 
-### Prerequisites
+The recommended deployment is the provided Docker Compose stack:
 
-- Docker Engine with compose plugin
-- At least one LLM provider API key
+| Service | Exposure | Role |
+|---|---|---|
+| `octw-proxy` | public `80/443` | HTTPS termination, `auth_request`, browser routing |
+| `octw-oidc` | internal | `oauth2-proxy` for OIDC login/session |
+| `octw-api` | `127.0.0.1:8000` | REST API and browser app |
+| `octw-edge` | `127.0.0.1:8443` | Tenant HTTP and WebSocket proxy |
+| `octw-db` | internal plus `5432` | PostgreSQL metadata store |
+| `octw-cache` | internal plus `6379` | Redis sessions and orchestration locks |
 
-### Host Setup
+The API and edge stay on localhost for operator access. End users only hit `octw-proxy` over HTTPS.
+
+## Host Preparation
 
 ```bash
-# Create directories
 sudo mkdir -p /var/lib/octw /etc/octw
-sudo chown $USER /var/lib/octw
-
-# Generate master encryption key
+sudo chown "$USER" /var/lib/octw
 sudo python3 -c "import os; open('/etc/octw/master.key','wb').write(os.urandom(32))"
-sudo chown $USER /etc/octw/master.key
+sudo chown "$USER" /etc/octw/master.key
 sudo chmod 600 /etc/octw/master.key
 ```
 
-### Environment Variables
+## Environment Setup
 
 ```bash
-# Required
-export OCTW_KEK=$(python3 -c "print(open('/etc/octw/master.key','rb').read().hex())")
-export OCTW_JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-
-# Provider keys (at least one required)
-export OCTW_ZAI_API_KEY="your-key"
-export OCTW_MOONSHOT_API_KEY="your-key"
-export OCTW_MINIMAX_API_KEY="your-key"
+cp .env.example .env
 ```
 
-### Launch
+Set at least:
 
-```bash
-docker compose up -d
+- `OCTW_KEK`
+- `OCTW_JWT_SECRET`
+- `OCTW_PUBLIC_BASE_URL`
+- `OCTW_SERVER_NAME`
+- `OCTW_TRUSTED_PROXY_ENABLED=true`
+- `OCTW_OIDC_CLIENT_ID`
+- `OCTW_OIDC_CLIENT_SECRET`
+- `OCTW_OIDC_COOKIE_SECRET`
+- one provider API key such as `OCTW_ZAI_API_KEY`
+
+## OIDC Provider Profiles
+
+### Keycloak
+
+In `.env`:
+
+```dotenv
+OCTW_OIDC_PROVIDER=keycloak-oidc
+OCTW_OIDC_ISSUER_URL=https://keycloak.example.com/realms/octw
+OCTW_OIDC_EMAIL_DOMAINS=example.com
+OCTW_OIDC_WHITELIST_DOMAINS=.example.com
 ```
 
-### Verify
+Use [configs/oauth2-proxy/keycloak.example.cfg](/Users/magos/dev/kumanday/OCTW/configs/oauth2-proxy/keycloak.example.cfg) as the reference for optional Keycloak group or role gates.
 
-```bash
-docker compose ps          # all 4 services should be Up/Healthy
-curl http://localhost:8000/health   # {"status":"ok"}
-curl http://localhost:8443/health   # {"status":"ok","service":"octw-edge"}
+### Google Workspace
+
+In `.env`:
+
+```dotenv
+OCTW_OIDC_PROVIDER=google
+OCTW_OIDC_ISSUER_URL=
+OCTW_OIDC_EMAIL_DOMAINS=example.com
+OCTW_OIDC_WHITELIST_DOMAINS=.example.com
 ```
 
-### Services
+If you need Google Group enforcement:
 
-| Service | Port | Image |
-|---|---|---|
-| octw-api | 8000 | Built from Dockerfile |
-| octw-edge | 8443 | Built from Dockerfile |
-| octw-db | 5432 | postgres:16-alpine |
-| octw-cache | 6379 | redis:7-alpine |
+1. Put the Admin SDK service account JSON at `configs/oauth2-proxy/credentials/google-admin-sdk.json`
+2. Copy the relevant settings from [configs/oauth2-proxy/google-workspace.example.cfg](/Users/magos/dev/kumanday/OCTW/configs/oauth2-proxy/google-workspace.example.cfg) into your active oauth2-proxy config
+3. Delegate domain-wide authority and grant the Admin SDK read scopes in Google Workspace
 
-### Rebuild After Code Changes
+## Launch
 
 ```bash
 docker compose up -d --build
 ```
 
-### View Logs
+`octw-proxy` will generate an ephemeral self-signed certificate inside the container if `configs/certs/fullchain.pem` and `configs/certs/privkey.pem` are missing.
+
+## Verification
+
+### Container health
 
 ```bash
+docker compose ps
+curl http://localhost:8000/health
+curl http://localhost:8443/health
+curl -k https://localhost/health
+```
+
+### Browser flow
+
+Open `https://<your-domain>/app`.
+
+The first successful visit should:
+
+1. redirect through your OIDC provider
+2. return to OCTW with a valid `oauth2-proxy` session
+3. mint an `octw_session` cookie from the trusted forwarded email header
+4. create or resume the single user-owned tenant
+5. land on `/app/chat`
+
+### Provision verification
+
+A successful `POST /api/v1/provision` or `POST /api/v1/app/deploy-or-resume` now implies:
+
+- `openclaw.json` exists after onboarding
+- the tenant container started
+- the gateway health check succeeded
+- a server-side WebSocket handshake to the tenant gateway succeeded
+
+If verification fails, OCTW stores the failure and returns an error instead of pretending the tenant is ready.
+
+## Logs
+
+```bash
+docker compose logs -f octw-proxy
+docker compose logs -f octw-oidc
 docker compose logs -f octw-api
 docker compose logs -f octw-edge
 ```
 
-### Reset Everything
+## Rebuild After Code Changes
 
 ```bash
-docker compose down -v            # removes containers and volumes
-sudo rm -rf /var/lib/octw/tenants/*  # removes tenant data
+docker compose up -d --build
 ```
 
-## Development Setup
-
-For running services outside Docker Compose (e.g. for debugging with breakpoints):
+## Reset
 
 ```bash
-uv sync
-
-# Start only infrastructure
-docker compose up -d octw-db octw-cache
-
-# Run API in one terminal
-uv run octw server api
-
-# Run edge proxy in another terminal
-uv run octw server edge
+docker compose down -v
+sudo rm -rf /var/lib/octw/tenants/*
 ```
 
-Both connect to the same Postgres and Redis instances from Docker Compose.
+## Production Notes
 
-## Production Considerations
-
-### TLS Termination
-
-The edge proxy (octw-edge) does not terminate TLS itself. In production, place a reverse proxy in front:
-
-- **nginx** or **Caddy** with automatic ACME certificates
-- Cloud load balancer with TLS termination
-- Tailscale / WireGuard for private access
-
-### Database
-
-The included Postgres is suitable for development. For production:
-
-- Use a managed Postgres instance (RDS, Cloud SQL, etc.)
-- Enable SSL connections
-- Set strong passwords
-- Configure backups
-
-Update `OCTW_DB_URL` to point to your production database.
-
-### Secrets
-
-- Use a strong, unique `OCTW_JWT_SECRET` (at least 32 bytes)
-- Protect `/etc/octw/master.key` with file permissions (`chmod 600`)
-- Consider backing the KEK with cloud KMS for production
-- Rotate the JWT secret periodically
-
-### Resource Limits
-
-Default tenant limits (1.5 GB RAM, 1 vCPU, 512 PIDs) are suitable for development. Adjust per deployment:
-
-```bash
-export OCTW_DEFAULT_MEM_LIMIT=2g
-export OCTW_DEFAULT_PIDS_LIMIT=1024
-```
-
-### Monitoring
-
-Prometheus metrics are available at `http://localhost:8000/metrics`. Key metrics:
-
-- `octw_tenant_container_starts_total`
-- `octw_tenant_wake_events_total`
-- `octw_active_tenants`
-- `octw_proxy_request_duration_seconds`
-- `octw_auth_failures_total`
-
-A Prometheus scrape config is provided at `configs/prometheus.yml`.
+- Mount a real certificate at `configs/certs/fullchain.pem` and `configs/certs/privkey.pem` before exposing the stack broadly.
+- Keep `octw-api` and `octw-edge` bound to localhost. The public entrypoint should stay `octw-proxy` only.
+- The default Postgres and Redis containers are adequate for development and small-scale testing. For production, move them to managed services and update `OCTW_DB_URL` and `OCTW_REDIS_URL`.
+- Pin `OCTW_OPENCLAW_DIGEST` if you need deterministic tenant image rollouts.

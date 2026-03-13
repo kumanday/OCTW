@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import ipaddress
 import uuid
 from datetime import datetime, timedelta
+from typing import Any
 
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +15,7 @@ from octw.common.config import settings
 from octw.db.tables import UserRow
 
 security = HTTPBearer(auto_error=False)
+SESSION_COOKIE_NAME = "octw_session"
 
 
 class TokenPayload:
@@ -29,7 +32,7 @@ def create_access_token(
     expires_minutes: int | None = None,
 ) -> str:
     exp = datetime.utcnow() + timedelta(minutes=expires_minutes or settings.jwt_expire_minutes)
-    payload: dict = {
+    payload: dict[str, Any] = {
         "sub": str(user_id),
         "email": email,
         "exp": exp,
@@ -48,12 +51,76 @@ def decode_token(token: str) -> TokenPayload:
     return TokenPayload(user_id=uuid.UUID(data["sub"]), email=data["email"], tid=tid)
 
 
+def _extract_cookie_token(request: Request) -> str | None:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    return token.strip() if token else None
+
+
+def _client_host(request: Request) -> str:
+    if request.client and request.client.host:
+        return request.client.host
+    return ""
+
+
+def _ip_in_networks(host: str, configured: list[str]) -> bool:
+    if not host:
+        return False
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    for raw in configured:
+        try:
+            network = ipaddress.ip_network(raw, strict=False)
+        except ValueError:
+            continue
+        if addr in network:
+            return True
+    return False
+
+
+def get_trusted_proxy_email(request: Request) -> str | None:
+    if not settings.trusted_proxy_enabled:
+        return None
+    host = _client_host(request)
+    if settings.trusted_proxy_ips and not _ip_in_networks(host, settings.trusted_proxy_ips):
+        return None
+    header = settings.trusted_proxy_user_header
+    email = request.headers.get(header, "").strip()
+    return email or None
+
+
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> TokenPayload:
-    if not credentials:
+    token: str | None = None
+    if credentials:
+        token = credentials.credentials
+    if not token:
+        token = _extract_cookie_token(request)
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return decode_token(credentials.credentials)
+    return decode_token(token)
+
+
+async def get_browser_user(
+    request: Request,
+    session: AsyncSession,
+) -> tuple[TokenPayload, bool]:
+    token = _extract_cookie_token(request)
+    if token:
+        payload = decode_token(token)
+        row = await session.get(UserRow, payload.user_id)
+        if row:
+            return TokenPayload(row.user_id, row.email, payload.tid), False
+
+    forwarded_email = get_trusted_proxy_email(request)
+    if not forwarded_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = await get_or_create_user(session, forwarded_email)
+    return TokenPayload(user.user_id, user.email), True
 
 
 async def get_or_create_user(
@@ -68,3 +135,15 @@ async def get_or_create_user(
     session.add(row)
     await session.flush()
     return row
+
+
+def set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=settings.public_base_url.startswith("https://"),
+        samesite="lax",
+        path="/",
+        max_age=settings.jwt_expire_minutes * 60,
+    )

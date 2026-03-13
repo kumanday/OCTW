@@ -1,35 +1,107 @@
 # API Reference
 
-Base URL: `http://localhost:8000/api/v1`
+Base operator API URL: `http://localhost:8000/api/v1`
 
-All endpoints require a Bearer token except auth endpoints. Obtain a token via the login/verify flow.
+There are now two auth modes:
 
-## Authentication
+- operator and CLI endpoints use OCTW bearer tokens
+- browser app endpoints under `/api/v1/app/*` are expected to sit behind `octw-proxy` and OIDC
+
+## Browser App Routes
+
+### GET `/app`
+
+Serves the single-page OCTW browser shell.
+
+### GET `/app/chat`
+
+Serves the same shell and resumes the chat view.
+
+### GET `/api/v1/app/session`
+
+Bootstrap endpoint for the browser app.
+
+Behavior:
+
+- if `octw_session` exists, returns the current user and tenant state
+- otherwise, if the request came through the trusted reverse proxy, creates the local user if needed, mints `octw_session`, and returns the same payload
+- otherwise returns `401`
+
+Response:
+
+```json
+{
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "user@example.com",
+  "tenant": {
+    "tenant_id": "44262e00-b7fc-462a-bf2e-8f7b750f4cfe",
+    "slug": "u-0123456789abcdef0123",
+    "status": "running",
+    "verification_status": "verified",
+    "verification_error": null,
+    "chat_url": "https://octw.example.com/app/chat"
+  }
+}
+```
+
+### POST `/api/v1/app/deploy-or-resume`
+
+Idempotent browser flow entrypoint.
+
+Behavior:
+
+- creates the signed-in user's single tenant if it does not exist yet
+- otherwise wakes the existing tenant if it is paused or stopped
+- re-runs verification if the tenant is not currently marked `verified`
+
+Response:
+
+```json
+{
+  "created": true,
+  "tenant": {
+    "tenant_id": "44262e00-b7fc-462a-bf2e-8f7b750f4cfe",
+    "slug": "u-0123456789abcdef0123",
+    "status": "running",
+    "verification_status": "verified",
+    "verification_error": null,
+    "chat_url": "https://octw.example.com/app/chat"
+  }
+}
+```
+
+### WebSocket `/t/{slug}/ws`
+
+Browser chat connections go through `octw-edge` on this path.
+
+`octw-edge` validates the OCTW session, checks tenant membership, wakes the tenant if needed, and then proxies the WebSocket to the tenant gateway.
+
+## Authentication Endpoints
 
 ### POST `/auth/login`
 
-Request a magic link token.
+Request a development magic-link token.
 
 ```json
 { "email": "user@example.com" }
 ```
 
-Response (202):
+Response:
+
 ```json
 { "message": "Check your email for a login link", "dev_token": "..." }
 ```
 
-In development, `dev_token` is returned directly. In production, the token would be sent via email.
-
 ### POST `/auth/verify`
 
-Exchange a magic link token for a session JWT.
+Exchange a dev token for an OCTW bearer token and `octw_session` cookie.
 
 ```json
 { "token": "<dev_token>" }
 ```
 
 Response:
+
 ```json
 {
   "access_token": "eyJ...",
@@ -41,33 +113,20 @@ Response:
 
 ### POST `/auth/logout`
 
-Response: 204 No Content
-
----
+Placeholder endpoint. Browser logout is currently expected to happen through `/oauth2/sign_out` at the ingress layer.
 
 ## Provisioning
 
 ### GET `/provision/providers`
 
-List available providers and whether they are configured on the server.
-
-Response:
-```json
-[
-  {
-    "key": "zai",
-    "display_name": "Z.ai GLM Coding Plan",
-    "model": "zai-coding/glm-5",
-    "configured": true
-  }
-]
-```
+List supported providers and whether their server-side API key is configured.
 
 ### POST `/provision`
 
-One-click tenant provisioning. Creates tenant, runs OpenClaw onboarding, configures webchat and model, starts container.
+Operator one-click provisioning flow.
 
 Request:
+
 ```json
 {
   "slug": "acme",
@@ -77,232 +136,99 @@ Request:
 }
 ```
 
-- `slug` — DNS-safe identifier (3-50 chars, lowercase alphanumeric and hyphens)
-- `name` — display name
-- `provider` — one of `zai`, `moonshot`, `minimax` (default: `zai`)
-- `secrets` — optional additional per-tenant secrets
+Response:
 
-Response (200):
 ```json
 {
-  "tenant_id": "550e8400-...",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
   "slug": "acme",
   "status": "running",
   "provider": "zai",
-  "model": "zai-coding/glm-5",
-  "url": "https://octw.example.com/acme/"
+  "model": "zai/glm-5",
+  "url": "https://octw.example.com/acme/",
+  "verification_status": "verified",
+  "verification_error": null
 }
 ```
 
-Error responses:
-- 400 — invalid provider or provider not configured on server
-- 409 — slug already exists
+A successful response implies the config exists, the gateway is healthy, and a server-side WebSocket connection to the tenant succeeded.
 
----
-
-## Tenants
+## Tenant Management
 
 ### POST `/tenants`
 
-Create a tenant without provisioning OpenClaw (use `/provision` for the full flow).
-
-```json
-{
-  "slug": "acme",
-  "name": "Acme Corp",
-  "plan": "standard",
-  "isolation_mode": "standard",
-  "trusted_proxy_auth": true
-}
-```
-
-Response (201):
-```json
-{ "tenantId": "...", "slug": "acme", "status": "stopped" }
-```
+Create tenant metadata without running the provisioning workflow.
 
 ### GET `/tenants`
 
-List tenants the authenticated user belongs to.
+List tenants visible to the caller.
 
 ### GET `/tenants/{tenantId}`
 
-Get tenant details. Requires membership.
+Fetch tenant details.
 
 ### PATCH `/tenants/{tenantId}`
 
-Update tenant (currently supports `name`). Requires `tenant_admin` role.
+Update mutable tenant fields such as `name`.
 
 ### DELETE `/tenants/{tenantId}`
 
-Delete tenant and all resources. Requires `tenant_admin` role. Response: 204.
-
----
-
-## Members
-
-### GET `/tenants/{tenantId}/members`
-
-List tenant members and their roles.
-
-### POST `/tenants/{tenantId}/members`
-
-Add a member. Requires `tenant_admin` role.
-
-```json
-{ "email": "user@example.com", "role": "tenant_user" }
-```
-
-Roles: `tenant_admin`, `tenant_user`, `tenant_viewer`.
-
-### DELETE `/tenants/{tenantId}/members/{userId}`
-
-Remove a member. Requires `tenant_admin` role. Response: 204.
-
----
+Delete the tenant and its resources.
 
 ## Secrets
 
-Secrets are encrypted at rest (AES-256-GCM envelope encryption). The API never returns secret values.
-
 ### GET `/tenants/{tenantId}/secrets`
 
-List secret metadata (names, types, timestamps — never values).
+List secret metadata. Values are never returned.
 
 ### PUT `/tenants/{tenantId}/secrets/{name}`
 
-Create or update a secret. Requires `tenant_admin` role.
-
-```json
-{
-  "value": "sk-...",
-  "type": "env",
-  "target_env_var": "OPENAI_API_KEY"
-}
-```
+Create or replace a secret.
 
 ### DELETE `/tenants/{tenantId}/secrets/{name}`
 
-Delete a secret. Requires `tenant_admin` role. Response: 204.
+Delete a secret.
 
 ### POST `/tenants/{tenantId}/secrets/rotate`
 
-Rotate a secret (provide new value). Requires `tenant_admin` role.
-
-```json
-{ "name": "OPENAI_API_KEY", "value": "sk-new-..." }
-```
-
----
+Rotate a secret value.
 
 ## Runtime Control
 
 ### GET `/tenants/{tenantId}/runtime`
 
-Get tenant runtime state, container ID, last activity, and resource limits.
-
-```json
-{
-  "tenant_id": "...",
-  "state": "running",
-  "container_id": "abc123...",
-  "last_activity_at": "2026-02-28T...",
-  "limits": { "mem_limit": "1536m", "cpu_quota": 100000, "pids_limit": 512 }
-}
-```
-
-States: `running`, `paused`, `stopped`, `error`, `not_found`.
+Return runtime state and resource limits.
 
 ### POST `/tenants/{tenantId}/runtime/start`
 
-Start the tenant container. Requires `tenant_user` or above.
+Start the tenant container.
 
 ### POST `/tenants/{tenantId}/runtime/stop`
 
-Stop and remove the tenant container. Requires `tenant_user` or above.
+Stop and remove the tenant container.
 
 ### POST `/tenants/{tenantId}/runtime/pause`
 
-Pause the container (memory retained, CPU released). Requires `tenant_user` or above.
+Pause the tenant container.
 
 ### POST `/tenants/{tenantId}/runtime/wake`
 
-Wake a paused or stopped tenant. Requires `tenant_user` or above.
+Wake a paused or stopped tenant.
 
 ### GET `/tenants/{tenantId}/runtime/logs`
 
-Get container logs.
+Return container logs.
 
-Query parameters:
-- `since` — Unix timestamp
-- `tail` — number of lines (default 200, max 5000)
+## Internal API
 
----
+Internal base URL: `http://octw-api:8000/internal/v1/tenants`
 
-## Internal Endpoints
+These endpoints are intended for `octw-edge` and internal automation.
 
-These are used by octw-edge and should be restricted to internal access (mTLS in production).
-
-Base URL: `http://localhost:8000/internal/v1/tenants`
-
-All endpoints accept either a UUID or slug as the `{identifier}`.
-
-| Method | Path | Description |
+| Method | Path | Purpose |
 |---|---|---|
-| POST | `/{identifier}/ensure-running` | Wake tenant if not running |
-| POST | `/{identifier}/pause-if-idle` | Pause tenant |
-| POST | `/{identifier}/stop-if-idle` | Stop tenant |
-| GET | `/{identifier}/status` | Get container state and IP |
-
-### GET `/{identifier}/status` Response
-
-```json
-{ "state": "running", "ip": "172.18.0.5" }
-```
-
----
-
-## Metrics
-
-### GET `/metrics`
-
-Prometheus-format metrics endpoint. No authentication required.
-
-```bash
-curl http://localhost:8000/metrics
-```
-
-Available metrics:
-
-| Metric | Type | Description |
-|---|---|---|
-| `octw_tenant_container_starts_total` | Counter | Tenant container start events (label: `tenant_id`) |
-| `octw_tenant_container_stops_total` | Counter | Tenant container stop events (label: `tenant_id`) |
-| `octw_tenant_wake_events_total` | Counter | Wake-on-request events (label: `tenant_id`) |
-| `octw_tenant_pause_events_total` | Counter | Tenant pause events (label: `tenant_id`) |
-| `octw_active_tenants` | Gauge | Currently running tenant containers |
-| `octw_proxy_request_duration_seconds` | Histogram | Edge proxy request duration (labels: `tenant_slug`, `method`, `status`) |
-| `octw_secret_operations_total` | Counter | Secret lifecycle operations (labels: `tenant_id`, `operation`) |
-| `octw_auth_failures_total` | Counter | Authentication failures (label: `reason`) |
-
-A Prometheus scrape config is provided at `configs/prometheus.yml`.
-
----
-
-## Health
-
-### GET `/health`
-
-Health check endpoint on octw-api. No authentication required.
-
-```json
-{ "status": "ok" }
-```
-
-### GET `/health` (octw-edge, port 8443)
-
-Health check endpoint on octw-edge.
-
-```json
-{ "status": "ok", "service": "octw-edge" }
-```
+| `POST` | `/{identifier}/ensure-running` | Wake tenant if needed |
+| `GET` | `/{identifier}/access/{user_id}` | Confirm membership before proxying |
+| `POST` | `/{identifier}/pause-if-idle` | Pause tenant |
+| `POST` | `/{identifier}/stop-if-idle` | Stop tenant |
+| `GET` | `/{identifier}/status` | Return runtime state and container IP |
