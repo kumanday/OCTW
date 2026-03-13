@@ -137,24 +137,77 @@ function resolveLocale() {
   return "en";
 }
 
-function hasOwn(object, key) {
-  return Object.prototype.hasOwnProperty.call(object, key);
+function getLocaleStrings() {
+  return state.locale === "es" ? STRINGS.es : STRINGS.en;
 }
 
-function getString(strings, key) {
-  if (typeof key !== "string") return "";
-  if (hasOwn(strings, key)) return strings[key];
-  if (hasOwn(STRINGS.en, key)) return STRINGS.en[key];
-  return key;
+function getTemplate(key) {
+  const strings = getLocaleStrings();
+  switch (key) {
+    case "appTitle": return strings.appTitle;
+    case "language": return strings.language;
+    case "heroEyebrow": return strings.heroEyebrow;
+    case "heroTitle": return strings.heroTitle;
+    case "checkingWorkspace": return strings.checkingWorkspace;
+    case "deployWorkspace": return strings.deployWorkspace;
+    case "working": return strings.working;
+    case "workspace": return strings.workspace;
+    case "chat": return strings.chat;
+    case "resumeWake": return strings.resumeWake;
+    case "promptPlaceholder": return strings.promptPlaceholder;
+    case "disconnected": return strings.disconnected;
+    case "connecting": return strings.connecting;
+    case "authorizing": return strings.authorizing;
+    case "connected": return strings.connected;
+    case "send": return strings.send;
+    case "signedInSummary": return strings.signedInSummary;
+    case "tenantMeta": return strings.tenantMeta;
+    case "status_running": return strings.status_running;
+    case "status_paused": return strings.status_paused;
+    case "status_stopped": return strings.status_stopped;
+    case "status_error": return strings.status_error;
+    case "status_provisioning": return strings.status_provisioning;
+    case "verification_verified": return strings.verification_verified;
+    case "verification_pending": return strings.verification_pending;
+    case "verification_failed": return strings.verification_failed;
+    case "authFailed": return strings.authFailed;
+    case "provisioningActivity": return strings.provisioningActivity;
+    case "workspaceReady": return strings.workspaceReady;
+    case "workspaceResumed": return strings.workspaceResumed;
+    case "provisioningFailed": return strings.provisioningFailed;
+    case "wakingWorkspace": return strings.wakingWorkspace;
+    case "workspaceConnected": return strings.workspaceConnected;
+    case "resumeFailed": return strings.resumeFailed;
+    case "running": return strings.running;
+    case "assistantError": return strings.assistantError;
+    case "sendFailed": return strings.sendFailed;
+    case "timedOutWaiting": return strings.timedOutWaiting;
+    case "websocketNotConnected": return strings.websocketNotConnected;
+    case "gatewayError": return strings.gatewayError;
+    default: return key;
+  }
+}
+
+function getVar(vars, name) {
+  switch (name) {
+    case "email":
+      return vars.email ?? "";
+    case "status":
+      return vars.status ?? "";
+    case "verification":
+      return vars.verification ?? "";
+    case "message":
+      return vars.message ?? "";
+    case "method":
+      return vars.method ?? "";
+    default:
+      return "";
+  }
 }
 
 function t(key, vars = {}) {
-  const strings = STRINGS[state.locale] || STRINGS.en;
-  const template = getString(strings, key);
-  return template.replace(/\{(\w+)\}/g, (_, name) => {
-    if (!hasOwn(vars, name)) return "";
-    return `${vars[name] ?? ""}`;
-  });
+  const template = getTemplate(key);
+  return template.replace(/\{(\w+)\}/g, (_, name) => `${getVar(vars, name)}`);
 }
 
 function applyLocale() {
@@ -177,9 +230,26 @@ function applyLocale() {
 }
 
 function localizeTenantState(value, prefix) {
-  const key = `${prefix}_${String(value || "").toLowerCase()}`;
-  const localized = getString(STRINGS[state.locale] || STRINGS.en, key);
-  return localized === key ? value : localized;
+  const normalized = String(value || "").toLowerCase();
+  if (prefix === "status") {
+    switch (normalized) {
+      case "running": return t("status_running");
+      case "paused": return t("status_paused");
+      case "stopped": return t("status_stopped");
+      case "error": return t("status_error");
+      case "provisioning": return t("status_provisioning");
+      default: return value;
+    }
+  }
+  if (prefix === "verification") {
+    switch (normalized) {
+      case "verified": return t("verification_verified");
+      case "pending": return t("verification_pending");
+      case "failed": return t("verification_failed");
+      default: return value;
+    }
+  }
+  return value;
 }
 
 function toSameOriginPath(path) {
